@@ -119,6 +119,28 @@ async function syncCommunity(
       last_seen_at = now(),
       updated_at = now()
   `;
+  // Seed the community-specific profile from Telegram metadata without overwriting owner edits.
+  try {
+    const chatInfo = await telegramApi<{ title?: string; description?: string; bio?: string }>(
+      token, "getChat", { chat_id: String(chat.id) },
+    );
+    await sql`
+      INSERT INTO public.community_intelligence_profiles
+        (telegram_chat_id, community_name, description, profile_source)
+      VALUES (
+        ${String(chat.id)}::bigint,
+        ${chatInfo.title ?? chat.title ?? ""},
+        ${chatInfo.description ?? chatInfo.bio ?? ""},
+        'telegram_metadata'
+      )
+      ON CONFLICT (telegram_chat_id) DO UPDATE SET
+        community_name = CASE WHEN community_intelligence_profiles.community_name = '' THEN EXCLUDED.community_name ELSE community_intelligence_profiles.community_name END,
+        description = CASE WHEN community_intelligence_profiles.description = '' THEN EXCLUDED.description ELSE community_intelligence_profiles.description END,
+        updated_at = now()
+    `;
+  } catch {
+    // Best-effort metadata discovery; owners can edit the profile later.
+  }
 }
 
 export default async function handler(req: any, res: any) {
