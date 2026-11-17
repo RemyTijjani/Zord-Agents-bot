@@ -53,7 +53,13 @@ export function readCookie(req: any, name: string): string | undefined {
   return undefined;
 }
 
-function appendCookie(res: any, value: string): void {\n  const current = res.getHeader("Set-Cookie");\n  const cookies = current ? (Array.isArray(current) ? current : [current]) : [];\n  res.setHeader("Set-Cookie", [...cookies, value]);\n}\n\nfunction cookie(req: any, name: string, value: string, maxAge: number): string {
+function appendCookie(res: any, value: string): void {
+  const current = res.getHeader("Set-Cookie");
+  const cookies = current ? (Array.isArray(current) ? current : [current]) : [];
+  res.setHeader("Set-Cookie", [...cookies, value]);
+}
+
+function cookie(req: any, name: string, value: string, maxAge: number): string {
   const secure = process.env.NODE_ENV === "production" || req.headers["x-forwarded-proto"] === "https";
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? "; Secure" : ""}`;
 }
