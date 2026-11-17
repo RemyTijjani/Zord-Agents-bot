@@ -27,7 +27,10 @@ const moduleOptions: Array<{ key: ModuleKey; name: string; detail: string }> = [
 export default function CommunitiesPage() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string>("");\n  const [profileChatId, setProfileChatId] = useState<string | null>(null);\n  const [profiles, setProfiles] = useState<Record<string, IntelligenceProfile>>({});\n  const [profileSaving, setProfileSaving] = useState(false);
+  const [notice, setNotice] = useState<string>("");
+  const [profileChatId, setProfileChatId] = useState<string | null>(null);
+  const [profiles, setProfiles] = useState<Record<string, IntelligenceProfile>>({});
+  const [profileSaving, setProfileSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -93,7 +96,8 @@ export default function CommunitiesPage() {
       setProfileSaving(false);
     }
   }
-\n  function toggleModule(chatId: string, module: ModuleKey, checked: boolean) {
+
+  function toggleModule(chatId: string, module: ModuleKey, checked: boolean) {
     setState((current) => current.status !== "ready" ? current : ({
       ...current,
       rows: current.rows.map((row) => row.id !== chatId ? row : ({
