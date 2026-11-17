@@ -1,4 +1,4 @@
-import { createHmac, createPublicKey, randomBytes, timingSafeEqual, verify } from "node:crypto";
+import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 
 export type TelegramProfile = {
@@ -53,17 +53,17 @@ export function readCookie(req: any, name: string): string | undefined {
   return undefined;
 }
 
-function cookie(req: any, name: string, value: string, maxAge: number): string {
+function appendCookie(res: any, value: string): void {\n  const current = res.getHeader("Set-Cookie");\n  const cookies = current ? (Array.isArray(current) ? current : [current]) : [];\n  res.setHeader("Set-Cookie", [...cookies, value]);\n}\n\nfunction cookie(req: any, name: string, value: string, maxAge: number): string {
   const secure = process.env.NODE_ENV === "production" || req.headers["x-forwarded-proto"] === "https";
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? "; Secure" : ""}`;
 }
 
 export function setOidcCookie(req: any, res: any, payload: object): void {
-  res.setHeader("Set-Cookie", cookie(req, OIDC_COOKIE, encode(payload), OIDC_TTL_SECONDS));
+  appendCookie(res, cookie(req, OIDC_COOKIE, encode(payload), OIDC_TTL_SECONDS));
 }
 
 export function clearOidcCookie(req: any, res: any): void {
-  res.setHeader("Set-Cookie", cookie(req, OIDC_COOKIE, "", 0));
+  appendCookie(res, cookie(req, OIDC_COOKIE, "", 0));
 }
 
 export function readOidcCookie(req: any): any {
@@ -75,11 +75,11 @@ export function readOidcCookie(req: any): any {
 export function setSessionCookie(req: any, res: any, profile: TelegramProfile): void {
   const now = Math.floor(Date.now() / 1000);
   const value = encode({ ...profile, iat: now, exp: now + SESSION_TTL_SECONDS });
-  res.setHeader("Set-Cookie", cookie(req, SESSION_COOKIE, value, SESSION_TTL_SECONDS));
+  appendCookie(res, cookie(req, SESSION_COOKIE, value, SESSION_TTL_SECONDS));
 }
 
 export function clearSessionCookie(req: any, res: any): void {
-  res.setHeader("Set-Cookie", cookie(req, SESSION_COOKIE, "", 0));
+  appendCookie(res, cookie(req, SESSION_COOKIE, "", 0));
 }
 
 export function readSession(req: any): TelegramProfile | null {
