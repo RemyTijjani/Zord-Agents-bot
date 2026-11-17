@@ -1,16 +1,16 @@
-import route0 from "./admin/agent-settings.js";
-import route1 from "./admin/communities.js";
-import route2 from "./admin/community-intelligence.js";
-import route3 from "./admin/connect-telegram.js";
-import route4 from "./admin/disconnect-telegram.js";
-import route5 from "./admin/overview.js";
-import route6 from "./admin/telegram-status.js";
-import route7 from "./auth/logout.js";
-import route8 from "./auth/session.js";
-import route9 from "./auth/telegram/callback.js";
-import route10 from "./auth/telegram/start.js";
-import route11 from "./integrations/entitlements.js";
-import route12 from "./telegram/webhook.js";
+import route0 from "../src/server/api-routes/admin/agent-settings.js";
+import route1 from "../src/server/api-routes/admin/communities.js";
+import route2 from "../src/server/api-routes/admin/community-intelligence.js";
+import route3 from "../src/server/api-routes/admin/connect-telegram.js";
+import route4 from "../src/server/api-routes/admin/disconnect-telegram.js";
+import route5 from "../src/server/api-routes/admin/overview.js";
+import route6 from "../src/server/api-routes/admin/telegram-status.js";
+import route7 from "../src/server/api-routes/auth/logout.js";
+import route8 from "../src/server/api-routes/auth/session.js";
+import route9 from "../src/server/api-routes/auth/telegram/callback.js";
+import route10 from "../src/server/api-routes/auth/telegram/start.js";
+import route11 from "../src/server/api-routes/integrations/entitlements.js";
+import route12 from "../src/server/api-routes/telegram/webhook.js";
 
 const routes: Record<string, (req: any, res: any) => unknown> = {
   "/api/admin/agent-settings": route0,
