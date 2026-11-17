@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
 import StatusBadge from "../components/StatusBadge";
 
 type CommunityRow = {
@@ -21,27 +20,18 @@ export default function CommunitiesPage() {
 
   useEffect(() => {
     let active = true;
-    (async () => {
-      const { data, error } = await supabase
-        .from("telegram_communities")
-        .select("id, title, chat_type, status, added_at, last_seen_at")
-        .order("added_at", { ascending: false })
-        .limit(100);
-
-      if (!active) return;
-      if (error) {
-        setState({ status: "error", message: error.message });
-        return;
-      }
-      if (!Array.isArray(data)) {
-        setState({ status: "error", message: "Unexpected response while loading communities." });
-        return;
-      }
-      setState({ status: "ready", rows: data as CommunityRow[] });
-    })();
-    return () => {
-      active = false;
-    };
+    fetch("/api/admin/communities", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(response.status === 401 ? "Your administrator session has expired." : "Communities could not be loaded.");
+        return response.json() as Promise<{ communities: CommunityRow[] }>;
+      })
+      .then((data) => {
+        if (active) setState({ status: "ready", rows: data.communities });
+      })
+      .catch((error: unknown) => {
+        if (active) setState({ status: "error", message: error instanceof Error ? error.message : "Unexpected server error." });
+      });
+    return () => { active = false; };
   }, []);
 
   return (
@@ -57,8 +47,8 @@ export default function CommunitiesPage() {
           Communities could not be loaded: {state.message}
         </div>
       )}
-      {state.status === "ready" &&
-        (state.rows.length === 0 ? (
+      {state.status === "ready" && (
+        state.rows.length === 0 ? (
           <div className="card state-box">
             No communities yet. Add the ZORD bot to a Telegram group as an administrator and it will appear here.
           </div>
@@ -66,22 +56,14 @@ export default function CommunitiesPage() {
           <div className="card table-wrap">
             <table>
               <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Added</th>
-                  <th>Last seen</th>
-                </tr>
+                <tr><th>Name</th><th>Type</th><th>Status</th><th>Added</th><th>Last seen</th></tr>
               </thead>
               <tbody>
                 {state.rows.map((row) => (
                   <tr key={row.id}>
                     <td>{row.title || "Untitled"}</td>
                     <td className="muted">{row.chat_type}</td>
-                    <td>
-                      <StatusBadge status={row.status} />
-                    </td>
+                    <td><StatusBadge status={row.status} /></td>
                     <td>{new Date(row.added_at).toLocaleString()}</td>
                     <td>{row.last_seen_at ? new Date(row.last_seen_at).toLocaleString() : "-"}</td>
                   </tr>
@@ -89,7 +71,8 @@ export default function CommunitiesPage() {
               </tbody>
             </table>
           </div>
-        ))}
+        )
+      )}
     </>
   );
 }
