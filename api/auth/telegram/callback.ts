@@ -5,6 +5,8 @@ export default async function handler(req: any, res: any) {
     res.setHeader("Allow", "GET");
     return res.status(405).send("Method not allowed.");
   }
+  const cookieHeader = typeof req.headers.cookie === "string" ? req.headers.cookie : "";
+  const oidcCookiePresent = cookieHeader.split(";").some((part: string) => part.trim().startsWith("zord_oidc_state="));
   const pending = readOidcCookie(req);
   clearOidcCookie(req, res);
   const state = typeof req.query?.state === "string" ? req.query.state : "";
@@ -15,6 +17,7 @@ export default async function handler(req: any, res: any) {
       !code ? "authorization_code_missing" : "provider_returned_error";
     console.warn("[telegram-auth] callback validation failed", {
       reason,
+      oidcCookiePresent,
       oidcCookieValid: Boolean(pending),
       statePresent: Boolean(state),
       codePresent: Boolean(code),
