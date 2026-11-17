@@ -1,4 +1,4 @@
-import { appBaseUrl, getDatabase, isActiveAdmin, isSameOrigin, readSession } from "../_lib/auth.js";
+import { appBaseUrl, isActiveAdmin, isSameOrigin, readSession } from "../_lib/auth.js";
 
 export default async function handler(req: any, res: any) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -28,7 +28,7 @@ export default async function handler(req: any, res: any) {
       body: JSON.stringify({
         url: webhookUrl,
         secret_token: secret,
-        allowed_updates: ["my_chat_member"],
+        allowed_updates: ["my_chat_member", "message", "channel_post"],
         drop_pending_updates: false,
         max_connections: 10,
       }),
