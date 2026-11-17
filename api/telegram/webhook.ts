@@ -1,11 +1,20 @@
 import { timingSafeEqual } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
+import { processAgentMessage } from "../_lib/agents.js";
 
 type TelegramChat = { id: number | string; type: string; title?: string };
 type TelegramMember = {
   status: string;
   user?: { id: number | string };
   can_delete_messages?: boolean;
+};
+type TelegramMessage = {
+  message_id: number;
+  date?: number;
+  text?: string;
+  caption?: string;
+  chat: TelegramChat;
+  from?: { id: number | string; is_bot?: boolean; username?: string; first_name?: string };
 };
 type TelegramUpdate = {
   update_id?: number | string;
@@ -14,8 +23,8 @@ type TelegramUpdate = {
     from?: { id: number | string };
     new_chat_member: TelegramMember;
   };
-  message?: { chat?: TelegramChat };
-  channel_post?: { chat?: TelegramChat };
+  message?: TelegramMessage;
+  channel_post?: TelegramMessage;
 };
 
 function safeEqual(left: string, right: string): boolean {
@@ -86,26 +95,16 @@ async function syncCommunity(
 
   await sql`
     INSERT INTO public.telegram_communities (
-      telegram_chat_id,
-      chat_type,
-      title,
-      added_by_telegram_user_id,
-      owner_telegram_user_id,
-      bot_status,
-      ownership_verified_at,
-      last_seen_at,
-      updated_at
+      telegram_chat_id, chat_type, title, added_by_telegram_user_id,
+      owner_telegram_user_id, bot_status, ownership_verified_at,
+      last_seen_at, updated_at
     )
     VALUES (
-      ${String(chat.id)}::bigint,
-      ${chat.type},
-      ${chat.title ?? ""},
+      ${String(chat.id)}::bigint, ${chat.type}, ${chat.title ?? ""},
       ${from?.id === undefined ? null : String(from.id)}::bigint,
-      ${ownerId}::bigint,
-      ${communityStatus},
+      ${ownerId}::bigint, ${communityStatus},
       CASE WHEN ${ownerId}::bigint IS NULL THEN NULL ELSE now() END,
-      now(),
-      now()
+      now(), now()
     )
     ON CONFLICT (telegram_chat_id) DO UPDATE SET
       chat_type = EXCLUDED.chat_type,
@@ -164,12 +163,8 @@ export default async function handler(req: any, res: any) {
         update_id, update_type, chat_id, status, attempt_count, processing_started_at
       )
       VALUES (
-        ${String(updateId)}::bigint,
-        ${updateType},
-        ${chatId}::bigint,
-        'received',
-        0,
-        now()
+        ${String(updateId)}::bigint, ${updateType}, ${chatId}::bigint,
+        'received', 0, now()
       )
       ON CONFLICT (update_id) DO UPDATE SET
         status = 'received',
@@ -190,6 +185,10 @@ export default async function handler(req: any, res: any) {
 
     if (update.my_chat_member) {
       await syncCommunity(sql, token, update.my_chat_member);
+    }
+    const message = update.message ?? update.channel_post;
+    if (message) {
+      await processAgentMessage(sql, token, message);
     }
 
     await sql`
