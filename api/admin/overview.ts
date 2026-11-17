@@ -7,9 +7,10 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Method not allowed." });
   }
   const user = readSession(req);
-  if (!user || !(await isActiveAdmin(user.id))) return res.status(401).json({ error: "Unauthorized." });
+  if (!user) return res.status(401).json({ error: "Unauthorized." });
 
   try {
+    if (!(await isActiveAdmin(user.id))) return res.status(401).json({ error: "Unauthorized." });
     const sql = getDatabase();
     const [communities, restricted, updates, failed, recent] = await Promise.all([
       sql`SELECT COUNT(*)::int AS count FROM public.telegram_communities WHERE bot_status = 'active'`,
