@@ -14,13 +14,15 @@ export default async function handler(req: any, res: any) {
     const sql = getDatabase();
     const rows = await sql`
       SELECT
-        telegram_chat_id::text AS id,
-        title,
-        chat_type,
-        bot_status AS status,
-        first_seen_at AS added_at,
-        last_seen_at
-      FROM public.telegram_communities
+        c.telegram_chat_id::text AS id,
+        c.title,
+        c.chat_type,
+        c.bot_status AS status,
+        c.first_seen_at AS added_at,
+        c.last_seen_at,
+        COALESCE(s.enabled_modules, ARRAY[]::text[]) AS enabled_modules
+      FROM public.telegram_communities c
+      LEFT JOIN public.community_agent_settings s ON s.telegram_chat_id = c.telegram_chat_id
       ORDER BY first_seen_at DESC
       LIMIT 100
     `;
