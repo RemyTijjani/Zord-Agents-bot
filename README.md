@@ -85,3 +85,34 @@ Only the trusted marketplace backend should send `status: "active"`, and only af
 Send a signed body `{"action":"check","telegram_chat_id":"-100..."}`. The bot resolves the community owner from its own verified Neon record; callers cannot choose the owner ID. It returns only unexpired active rentals whose module is also globally available. An unverified/restricted community receives no active modules.
 
 The three modules remain globally disabled until their execution handlers, moderation permissions, and operational safeguards have been implemented and tested. An active rental alone does not switch a module on.
+
+
+## Official agent runtime (feature branch)
+
+The central webhook now accepts Telegram `message` and `channel_post` updates in addition to membership updates, and routes eligible messages through the three independent modules.
+
+- **Sentinel:** checks message text for high-confidence scam patterns and excessive links. It deletes only high-confidence matches (and only when Telegram grants delete permission); detections and actions are logged without storing raw message text.
+- **Poly-Shield:** applies a conservative local toxicity fallback and, when an AI provider is configured, multilingual classification. `/ask <question>` provides multilingual community Q&A. Flagged messages are sent for moderator review; Poly-Shield does not automatically delete them.
+- **Omini Glitch:** `/ominireport` returns a seven-day action summary; `/glitch <idea>` drafts a community post; `/meme <topic>` creates a text-only meme caption.
+
+### AI provider configuration
+
+Set these server-side variables in the dedicated bot project when enabling AI-powered Poly-Shield and Omini Glitch features:
+
+- `ZORD_AI_API_KEY` — API key for an OpenAI-compatible chat-completions provider.
+- `ZORD_AI_MODEL` — model identifier supported by that provider.
+- `ZORD_AI_API_URL` — optional full chat-completions URL; defaults to `https://api.openai.com/v1/chat/completions`.
+
+The AI key is never exposed to browser code. Without these values, the deterministic Sentinel checks and local Poly-Shield fallback remain available; AI Q&A/content generation returns a configuration message.
+
+### Per-community controls and test safety
+
+The administrator's Communities page now has independent Sentinel, Poly-Shield, and Omini Glitch switches for each verified community. Settings are saved server-side and recorded in the audit log.
+
+- Normal operation requires a verified community, a module selected for that community, global module availability, and a current active rental entitlement for the verified community owner.
+- For controlled pre-marketplace testing only, set `ZORD_AGENT_TEST_MODE=true` in the **Preview** environment. This bypasses rental checks only for communities whose verified creator is the configured `TELEGRAM_ADMIN_ID`. Do not set this variable in Production.
+- Global module availability remains off by default. Do not enable public rentals until live-group tests and the AI provider configuration are complete.
+- The Telegram webhook registration now subscribes to `my_chat_member`, `message`, and `channel_post`.
+
+Apply the matching SQL migration to the bot's Neon branch before testing the new controls:
+`supabase/migrations/20261117150000_official_agent_runtime.sql`.
