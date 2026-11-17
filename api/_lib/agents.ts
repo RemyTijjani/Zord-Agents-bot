@@ -232,7 +232,7 @@ function polyShieldFinding(text: string): boolean {
 
 async function runSentinel(sql: Sql, token: string, message: TelegramMessage, text: string, profile: CommunityProfile): Promise<void> {
   const contextualTerms = [profile.topic, ...profile.focus_topics].filter(Boolean).join(" ");
-  const finding = sentinelFinding(text) ?? (contextualTerms && /\\b(support|customer care|admin|moderator|official)\\b/i.test(text) && /\\b(dm me|contact me|message me|send funds|send crypto|seed phrase|verification code)\\b/i.test(text) ? { reason: "community_impersonation_pattern", severity: "high" as const } : null);
+  const finding = sentinelFinding(text) ?? (contextualTerms && /\b(support|customer care|admin|moderator|official)\b/i.test(text) && /\b(dm me|contact me|message me|send funds|send crypto|seed phrase|verification code)\b/i.test(text) ? { reason: "community_impersonation_pattern", severity: "high" as const } : null);
   if (!finding) return;
   const chatId = String(message.chat.id);
   const userId = message.from?.id === undefined ? null : String(message.from.id);
@@ -333,9 +333,15 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
       );
       return;
     }
-    if (parsed.name === "communityprofile") {\n      await send(token, chatId, `🧠 Community Intelligence\\nTopic: ${profile.topic || "Not set"}\\nAudience: ${profile.audience || "Not set"}\\nFocus: ${(profile.focus_topics ?? []).join(", ") || "Not set"}\\nTone: ${profile.tone || "Helpful and clear"}\\n\\nOwner commands:\\n/settopic <main subject>\\n/setaudience <who the group is for>\\n/setrules <community rules>\\n/settone <preferred tone>\\n/setcontent <content and meme preferences>`, message.message_id);
+    if (parsed.name === "communityprofile") {
+      await send(token, chatId, `🧠 Community Intelligence\\nTopic: ${profile.topic || "Not set"}\\nAudience: ${profile.audience || "Not set"}\\nFocus: ${(profile.focus_topics ?? []).join(", ") || "Not set"}\\nTone: ${profile.tone || "Helpful and clear"}\\n\\nOwner commands:\\n/settopic <main subject>\\n/setaudience <who the group is for>\\n/setrules <community rules>\\n/settone <preferred tone>\\n/setcontent <content and meme preferences>`, message.message_id);
       return;
-    }\n    if (["settopic", "setaudience", "setrules", "settone", "setcontent"].includes(parsed.name)) {\n      const field = ({ settopic: "topic", setaudience: "audience", setrules: "rules", settone: "tone", setcontent: "content" } as Record<string, string>)[parsed.name];\n      const saved = await updateProfileFromOwner(sql, chatId, message.from?.id === undefined ? "" : String(message.from.id), field, parsed.args);\n      await send(token, chatId, saved ? "✅ Community Intelligence profile updated. All enabled agents will use the new settings." : "Only the verified group owner can update this profile. Use the command with a value up to 1,200 characters.", message.message_id);\n      return;\n    }\n    if (parsed.name === "status") {
+    }\n    if (["settopic", "setaudience", "setrules", "settone", "setcontent"].includes(parsed.name)) {
+      const field = ({ settopic: "topic", setaudience: "audience", setrules: "rules", settone: "tone", setcontent: "content" } as Record<string, string> )[parsed.name];
+      const saved = await updateProfileFromOwner(sql, chatId, message.from?.id === undefined ? "" : String(message.from.id), field, parsed.args);\n      await send(token, chatId, saved ? "✅ Community Intelligence profile updated. All enabled agents will use the new settings." : "Only the verified group owner can update this profile. Use the command with a value up to 1,200 characters.", message.message_id);
+      return;
+    }
+    if (parsed.name === "status") {
       await send(token, chatId, modules.length
         ? `✅ Community verified. Active modules: ${modules.join(", ")}.`
         : "ℹ️ This community currently has no active ZORD agent rentals.", message.message_id);
