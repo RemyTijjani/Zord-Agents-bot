@@ -10,6 +10,16 @@ export default async function handler(req: any, res: any) {
   const state = typeof req.query?.state === "string" ? req.query.state : "";
   const code = typeof req.query?.code === "string" ? req.query.code : "";
   if (!pending || !state || state !== pending.state || !code || req.query?.error) {
+    const reason = !pending ? "oidc_cookie_missing_or_invalid" :
+      !state ? "state_missing" : state !== pending.state ? "state_mismatch" :
+      !code ? "authorization_code_missing" : "provider_returned_error";
+    console.warn("[telegram-auth] callback validation failed", {
+      reason,
+      oidcCookieValid: Boolean(pending),
+      statePresent: Boolean(state),
+      codePresent: Boolean(code),
+      providerErrorPresent: Boolean(req.query?.error),
+    });
     return res.redirect(302, "/sign-in?error=telegram_login_cancelled");
   }
   try {
