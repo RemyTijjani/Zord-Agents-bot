@@ -14,6 +14,13 @@ export default async function handler(req: any, res: any) {
     const nonce = randomToken();
     const verifier = randomToken(48);
     setOidcCookie(req, res, { state, nonce, verifier, exp: Math.floor(Date.now() / 1000) + 600 });
+    const setCookie = res.getHeader("Set-Cookie");
+    console.info("[telegram-auth] login start", {
+      setCookiePresent: Boolean(setCookie),
+      setCookieCount: Array.isArray(setCookie) ? setCookie.length : setCookie ? 1 : 0,
+      callbackHost: new URL(appBaseUrl()).host,
+      forwardedProto: req.headers["x-forwarded-proto"] || "unknown",
+    });
     const challenge = base64urlSha256(verifier);
     const redirectUri = appBaseUrl() + "/api/auth/telegram/callback";
     const params = new URLSearchParams({
