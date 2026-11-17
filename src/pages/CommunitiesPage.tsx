@@ -209,7 +209,7 @@ export default function CommunitiesPage() {
                         <label className="agent-option" key={key}>
                           <span><strong>{label}</strong></span>
                           {key === "description" || key === "rules" || key === "content_preferences" ? (
-                            <textarea rows={3} value={key === "focus_topics" ? "" : String(profiles[row.id][key])}
+                            <textarea rows={3} value={String(profiles[row.id][key])}
                               onChange={(event) => updateProfile(row.id, key, event.target.value)} />
                           ) : (
                             <input value={key === "focus_topics" ? profiles[row.id].focus_topics.join(", ") : String(profiles[row.id][key])}
