@@ -31,6 +31,7 @@ Configure these in the dedicated `zord-agents-bot` Vercel project. Never expose 
 - `TELEGRAM_ADMIN_ID` — must be set to `1704977260`.
 - `TELEGRAM_BOT_TOKEN` — bot token from @BotFather. Keep it server-side and never commit or share it.
 - `TELEGRAM_WEBHOOK_SECRET` — secret used to authenticate Telegram webhook deliveries. This is stored as a sensitive Production variable in Vercel.
+- `ZORD_MARKETPLACE_WEBHOOK_SECRET` — shared server-to-server HMAC secret for signed rental entitlement sync and checks. Configure the same value only in this bot project and the trusted ZORD marketplace backend; never expose it to browser code.
 
 In @BotFather, configure the allowed website origin and callback URL:
 `https://zord-agents-bot-remytijjanis-projects.vercel.app`
@@ -61,3 +62,26 @@ After `TELEGRAM_BOT_TOKEN` is configured, sign in to the admin dashboard and use
 ## Development boundaries
 
 Do not connect this repository to or modify the existing QUANTUM-AI / ZORD production application or database as part of standalone bot development.
+
+## Marketplace entitlement integration
+
+The bot exposes `POST /api/integrations/entitlements` for server-to-server rental synchronization and community entitlement checks. It is intentionally unavailable until `ZORD_MARKETPLACE_WEBHOOK_SECRET` is configured.
+
+Every request must include:
+- `X-Zord-Timestamp`: Unix timestamp in seconds (requests older than five minutes are rejected).
+- `X-Zord-Signature`: lowercase hex HMAC-SHA256 of `<timestamp>.<JSON.stringify(requestBody)>`, using the shared secret.
+
+Sign the exact compact JSON body sent over HTTP; preserve property order between signing and sending. Do not sign a separately formatted or re-serialized body.
+
+### Sync a rental
+
+Send a signed JSON body with `action: "sync"` and these fields:
+`external_entitlement_id`, `telegram_user_id`, `module_key` (`sentinel`, `poly_shield`, or `omini_glitch`), `status` (`pending`, `active`, `suspended`, `revoked`, or `expired`), optional `starts_at`, optional `expires_at`, and optional object `entitlement_data`.
+
+Only the trusted marketplace backend should send `status: "active"`, and only after it has verified the rental/payment. Repeated syncs update the same record using `external_entitlement_id`.
+
+### Check a community
+
+Send a signed body `{"action":"check","telegram_chat_id":"-100..."}`. The bot resolves the community owner from its own verified Neon record; callers cannot choose the owner ID. It returns only unexpired active rentals whose module is also globally available. An unverified/restricted community receives no active modules.
+
+The three modules remain globally disabled until their execution handlers, moderation permissions, and operational safeguards have been implemented and tested. An active rental alone does not switch a module on.
