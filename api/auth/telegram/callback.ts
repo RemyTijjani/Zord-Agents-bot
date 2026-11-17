@@ -1,4 +1,4 @@
-import { appBaseUrl, clearOidcCookie, isActiveAdmin, readOidcCookie, setSessionCookie, verifyTelegramIdToken } from "../../../_lib/auth";
+import { appBaseUrl, clearOidcCookie, isActiveAdmin, readOidcCookie, setSessionCookie, verifyTelegramIdToken } from "../../_lib/auth";
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "GET") {
