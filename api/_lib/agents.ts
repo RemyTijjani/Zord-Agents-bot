@@ -126,8 +126,70 @@ async function getActiveModules(sql: Sql, chatId: string): Promise<ModuleKey[]> 
   `;
   return rows.map((row: any) => row.module_key) as ModuleKey[];
 }
+
+type CommunityProfile = {
+  community_name: string;
+  description: string;
+  topic: string;
+  audience: string;
+  focus_topics: string[];
+  rules: string;
+  tone: string;
+  content_preferences: string;
+};
+async function getCommunityProfile(sql: Sql, chatId: string, chatTitle = ""): Promise<CommunityProfile> {
+  const rows = await sql`
+    SELECT community_name, description, topic, audience, focus_topics, rules, tone, content_preferences
+    FROM public.community_intelligence_profiles
+    WHERE telegram_chat_id = ${chatId}::bigint LIMIT 1
+  `;
+  if (rows[0]) return rows[0] as CommunityProfile;
+  const fallback: CommunityProfile = {
+    community_name: chatTitle || "Telegram community",
+    description: "", topic: "", audience: "", focus_topics: [],
+    rules: "", tone: "helpful, respectful and clear", content_preferences: "",
+  };
+  await sql`
+    INSERT INTO public.community_intelligence_profiles (telegram_chat_id, community_name)
+    VALUES (${chatId}::bigint, ${fallback.community_name})
+    ON CONFLICT (telegram_chat_id) DO NOTHING
+  `;
+  return fallback;
+}
+function profileContext(profile: CommunityProfile): string {
+  return [
+    `Community name: ${profile.community_name || "Not specified"}`,
+    `Community description: ${profile.description || "Not provided"}`,
+    `Main subject: ${profile.topic || "Not confirmed; ask for clarification rather than guessing"}`,
+    `Audience: ${profile.audience || "General community members"}`,
+    `Focus topics: ${(profile.focus_topics ?? []).join(", ") || "Not specified"}`,
+    `Community rules: ${profile.rules || "Use respectful, safe and relevant discussion"}`,
+    `Preferred tone: ${profile.tone || "helpful and clear"}`,
+    `Content preferences: ${profile.content_preferences || "Relevant educational and engaging content"}`,
+    "Treat this profile as community-specific context, not proof of official affiliation or factual claims. Never claim to represent the named company or provide account-specific support. Do not invent policies, prices, announcements or facts.",
+  ].join("\n");
+}
+async function updateProfileFromOwner(sql: Sql, chatId: string, userId: string, field: string, value: string): Promise<boolean> {
+  const allowedFields: Record<string, string> = {
+    topic: "topic", audience: "audience", rules: "rules", tone: "tone", content: "content_preferences",
+  };
+  const column = allowedFields[field];
+  if (!column || !value.trim() || value.length > 1200) return false;
+  const owner = await sql`
+    SELECT owner_telegram_user_id::text AS owner_id FROM public.telegram_communities
+    WHERE telegram_chat_id = ${chatId}::bigint AND bot_status = 'active' LIMIT 1
+  `;
+  if (!owner[0] || owner[0].owner_id !== userId) return false;
+  await sql`
+    INSERT INTO public.community_intelligence_profiles (telegram_chat_id, community_name, ${sql(column)})
+    VALUES (${chatId}::bigint, '', ${value.trim()})
+    ON CONFLICT (telegram_chat_id) DO UPDATE SET ${sql(column)} = EXCLUDED.${sql(column)}, updated_at = now()
+  `;
+  return true;
+}
+
 const suspiciousHosts = new Set([
-  "bit.ly", "tinyurl.com", "t.me", "cutt.ly", "is.gd", "rb.gy", "shorturl.at",
+  "bit.ly", "tinyurl.com", "cutt.ly", "is.gd", "rb.gy", "shorturl.at",
 ]);
 
 function sentinelFinding(text: string): { reason: string; severity: "medium" | "high" } | null {
@@ -157,8 +219,8 @@ function polyShieldFinding(text: string): boolean {
   return toxicityTerms.some((term) => normalized.includes(term));
 }
 
-async function runSentinel(sql: Sql, token: string, message: TelegramMessage, text: string): Promise<void> {
-  const finding = sentinelFinding(text);
+async function runSentinel(sql: Sql, token: string, message: TelegramMessage, text: string, profile: CommunityProfile): Promise<void> {
+  const contextualTerms = [profile.topic, ...profile.focus_topics].filter(Boolean).join(" ");\n  const finding = sentinelFinding(text) ?? (contextualTerms && /\\b(support|customer care|admin|moderator|official)\\b/i.test(text) && /\\b(dm me|contact me|message me|send funds|send crypto|seed phrase|verification code)\\b/i.test(text) ? { reason: "community_impersonation_pattern", severity: "high" as const } : null);
   if (!finding) return;
   const chatId = String(message.chat.id);
   const userId = message.from?.id === undefined ? null : String(message.from.id);
@@ -174,12 +236,12 @@ async function runSentinel(sql: Sql, token: string, message: TelegramMessage, te
   }
 }
 
-async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, text: string): Promise<void> {
+async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, text: string, profile: CommunityProfile): Promise<void> {
   let flagged = polyShieldFinding(text);
   let severity: "low" | "medium" | "high" = flagged ? "medium" : "low";
   let reason = "keyword_fallback";
   const classification = await aiCompletion(
-    "You are Poly-Shield, a multilingual Telegram community safety moderator. Classify only direct personal abuse, targeted harassment, hateful attacks, or credible threats. Do not flag disagreement, criticism, jokes without a target, reclaimed language, or quoted educational content. Understand the message in any language. Return only JSON: {\"flagged\":boolean,\"severity\":\"low\"|\"medium\"|\"high\",\"reason\":\"short label\"}.",
+    `You are Poly-Shield, a multilingual Telegram community safety moderator for this specific community. Use the community profile below to understand on-topic discussion and context. Classify only direct personal abuse, targeted harassment, hateful attacks, or credible threats. Do not flag disagreement, criticism, jokes without a target, reclaimed language, or quoted educational content. Understand the message in any language. Community profile:\\n${profileContext(profile)}\\nReturn only JSON: {\"flagged\":boolean,\"severity\":\"low\"|\"medium\"|\"high\",\"reason\":\"short label\"}.",
     text,
     100,
   );
@@ -202,7 +264,7 @@ async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, 
   await send(token, chatId, "🧩 Poly-Shield: Please keep the conversation respectful. This message has been flagged for moderator review.", message.message_id);
 }
 
-async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage, text: string): Promise<void> {
+async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage, text: string, profile: CommunityProfile): Promise<void> {
   const parsed = command(text);
   if (!parsed) return;
   const chatId = String(message.chat.id);
@@ -245,7 +307,7 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
 
   const chatId = String(message.chat.id);
   const parsed = command(text);
-  const modules = await getActiveModules(sql, chatId);
+  const modules = await getActiveModules(sql, chatId);\n  const profile = await getCommunityProfile(sql, chatId, message.chat.title ?? "");
 
   if (parsed) {
     if (["start", "help", "agents"].includes(parsed.name)) {
@@ -258,7 +320,7 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
       );
       return;
     }
-    if (parsed.name === "status") {
+    if (parsed.name === "communityprofile") {\n      await send(token, chatId, `🧠 Community Intelligence\\nTopic: ${profile.topic || "Not set"}\\nAudience: ${profile.audience || "Not set"}\\nFocus: ${(profile.focus_topics ?? []).join(", ") || "Not set"}\\nTone: ${profile.tone || "Helpful and clear"}\\n\\nOwner commands:\\n/settopic <main subject>\\n/setaudience <who the group is for>\\n/setrules <community rules>\\n/settone <preferred tone>\\n/setcontent <content and meme preferences>`, message.message_id);\n      return;\n    }\n    if (["settopic", "setaudience", "setrules", "settone", "setcontent"].includes(parsed.name)) {\n      const field = ({ settopic: "topic", setaudience: "audience", setrules: "rules", settone: "tone", setcontent: "content" } as Record<string, string>)[parsed.name];\n      const saved = await updateProfileFromOwner(sql, chatId, message.from?.id === undefined ? "" : String(message.from.id), field, parsed.args);\n      await send(token, chatId, saved ? "✅ Community Intelligence profile updated. All enabled agents will use the new settings." : "Only the verified group owner can update this profile. Use the command with a value up to 1,200 characters.", message.message_id);\n      return;\n    }\n    if (parsed.name === "status") {
       await send(token, chatId, modules.length
         ? `✅ Community verified. Active modules: ${modules.join(", ")}.`
         : "ℹ️ This community currently has no active ZORD agent rentals.", message.message_id);
@@ -279,12 +341,12 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
       return;
     }
     if (["ominireport", "glitchreport"].includes(parsed.name) && modules.includes("omini_glitch")) {
-      await runOminiGlitch(sql, token, message, text);
+      await runOminiGlitch(sql, token, message, text, profile);
       return;
     }
   }
 
-  if (modules.includes("sentinel")) await runSentinel(sql, token, message, text);
-  if (modules.includes("poly_shield")) await runPolyShield(sql, token, message, text);
-  if (modules.includes("omini_glitch")) await runOminiGlitch(sql, token, message, text);
+  if (modules.includes("sentinel")) await runSentinel(sql, token, message, text, profile);
+  if (modules.includes("poly_shield")) await runPolyShield(sql, token, message, text, profile);
+  if (modules.includes("omini_glitch")) await runOminiGlitch(sql, token, message, text, profile);
 }
