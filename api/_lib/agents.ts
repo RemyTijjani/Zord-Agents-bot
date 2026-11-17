@@ -253,7 +253,7 @@ async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, 
   let severity: "low" | "medium" | "high" = flagged ? "medium" : "low";
   let reason = "keyword_fallback";
   const classification = await aiCompletion(
-    `You are Poly-Shield, a multilingual Telegram community safety moderator for this specific community. Use the community profile below to understand on-topic discussion and context. Classify only direct personal abuse, targeted harassment, hateful attacks, or credible threats. Do not flag disagreement, criticism, jokes without a target, reclaimed language, or quoted educational content. Understand the message in any language. Community profile:\\n${profileContext(profile)}\\nReturn only JSON: {\"flagged\":boolean,\"severity\":\"low\"|\"medium\"|\"high\",\"reason\":\"short label\"}.",
+    `You are Poly-Shield, a multilingual Telegram community safety moderator for this specific community. Use the profile to understand on-topic discussion. Classify only direct personal abuse, targeted harassment, hateful attacks or credible threats. Do not flag disagreement, criticism, jokes without a target, reclaimed language or quoted educational content. Understand any language. Community profile:\n${profileContext(profile)}\nReturn only JSON: {"flagged":boolean,"severity":"low"|"medium"|"high","reason":"short label"}.`,
     text,
     100,
   );
@@ -334,7 +334,7 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
       return;
     }
     if (parsed.name === "communityprofile") {
-      await send(token, chatId, `🧠 Community Intelligence\\nTopic: ${profile.topic || "Not set"}\\nAudience: ${profile.audience || "Not set"}\\nFocus: ${(profile.focus_topics ?? []).join(", ") || "Not set"}\\nTone: ${profile.tone || "Helpful and clear"}\\n\\nOwner commands:\\n/settopic <main subject>\\n/setaudience <who the group is for>\\n/setrules <community rules>\\n/settone <preferred tone>\\n/setcontent <content and meme preferences>`, message.message_id);
+      await send(token, chatId, `🧠 Community Intelligence\nTopic: ${profile.topic || "Not set"}\nAudience: ${profile.audience || "Not set"}\nFocus: ${(profile.focus_topics ?? []).join(", ") || "Not set"}\nTone: ${profile.tone || "Helpful and clear"}\n\nOwner commands:\\n/settopic <main subject>\\n/setaudience <who the group is for>\\n/setrules <community rules>\\n/settone <preferred tone>\n/setcontent <content and meme preferences>`, message.message_id);
       return;
     }
     if (["settopic", "setaudience", "setrules", "settone", "setcontent"].includes(parsed.name)) {
