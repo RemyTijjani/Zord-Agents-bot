@@ -25,6 +25,7 @@ type ConnectionState =
   | { status: "checking" }
   | { status: "disconnected" }
   | { status: "connecting" }
+  | { status: "disconnecting" }
   | { status: "connected"; pendingUpdates: number; hasRecentDeliveryError: boolean }
   | { status: "error"; message: string };
 
@@ -64,6 +65,28 @@ export default function OverviewPage() {
     return () => { active = false; };
   }, []);
 
+  async function disconnectTelegram() {
+    if (!window.confirm("Disconnect the Telegram webhook? The bot will stop sending updates to this dashboard. It will remain in your Telegram groups, and saved community records will not be deleted.")) return;
+    setConnection({ status: "disconnecting" });
+    try {
+      const response = await fetch("/api/admin/disconnect-telegram", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+      });
+      const result = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || result.ok !== true) throw new Error(result.error || "Telegram webhook disconnection failed.");
+      const statusResponse = await fetch("/api/admin/telegram-status", { credentials: "same-origin", cache: "no-store" });
+      if (!statusResponse.ok) throw new Error("Telegram accepted the disconnect, but its status could not be verified. Refresh the page to check it.");
+      const status = await statusResponse.json() as { connected: boolean; pendingUpdates: number; hasRecentDeliveryError: boolean };
+      setConnection(status.connected
+        ? { status: "connected", pendingUpdates: status.pendingUpdates, hasRecentDeliveryError: status.hasRecentDeliveryError }
+        : { status: "disconnected" });
+    } catch (error) {
+      setConnection({ status: "error", message: error instanceof Error ? error.message : "Could not disconnect the Telegram bot." });
+    }
+  }
+
   async function connectTelegram() {
     setConnection({ status: "connecting" });
     try {
@@ -91,6 +114,7 @@ export default function OverviewPage() {
   }
 
   const isConnecting = connection.status === "connecting";
+  const isDisconnecting = connection.status === "disconnecting";
   const isConnected = connection.status === "connected";
 
   return (
@@ -120,14 +144,26 @@ export default function OverviewPage() {
               </p>
             )}
             {connection.status === "disconnected" && <p className="notice notice-error" role="status">Telegram webhook is not connected.</p>}
-            <button
-              type="button"
-              className="btn"
-              onClick={() => void connectTelegram()}
-              disabled={isConnecting || connection.status === "checking"}
-            >
-              {isConnecting ? "Connecting..." : isConnected ? "Reconnect webhook" : "Connect Telegram bot"}
-            </button>
+            <div className="button-row">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void connectTelegram()}
+                disabled={isConnecting || isDisconnecting || connection.status === "checking"}
+              >
+                {isConnecting ? "Connecting..." : isConnected ? "Reconnect webhook" : "Connect Telegram bot"}
+              </button>
+              {isConnected && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => void disconnectTelegram()}
+                  disabled={isConnecting || isDisconnecting}
+                >
+                  {isDisconnecting ? "Disconnecting..." : "Disconnect bot"}
+                </button>
+              )}
+            </div>
             {connection.status === "error" && <p className="notice notice-error" role="alert">{connection.message}</p>}
           </section>
 
