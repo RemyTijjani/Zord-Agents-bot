@@ -1,1 +1,33 @@
 import { appBaseUrl, base64urlSha256, randomToken, setOidcCookie } from "../../_lib/auth.js";
+
+export default async function handler(req: any, res: any) {
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
+    return res.status(405).json({ error: "Method not allowed." });
+  }
+  const clientId = process.env.TELEGRAM_LOGIN_CLIENT_ID;
+  if (!clientId || !process.env.TELEGRAM_LOGIN_CLIENT_SECRET || !process.env.AUTH_COOKIE_SECRET || !process.env.APP_BASE_URL) {
+    return res.status(503).json({ error: "Telegram login is not configured yet. Complete the deployment setup first." });
+  }
+  try {
+    const state = randomToken();
+    const nonce = randomToken();
+    const verifier = randomToken(48);
+    setOidcCookie(req, res, { state, nonce, verifier, exp: Math.floor(Date.now() / 1000) + 600 });
+    const challenge = base64urlSha256(verifier);
+    const redirectUri = appBaseUrl() + "/api/auth/telegram/callback";
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "openid profile",
+      state,
+      nonce,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    });
+    return res.redirect(302, "https://oauth.telegram.org/auth?" + params.toString());
+  } catch {
+    return res.status(500).json({ error: "Could not start Telegram login." });
+  }
+}
