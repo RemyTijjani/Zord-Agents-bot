@@ -253,7 +253,7 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
         ? modules.map((key) => key === "sentinel" ? "Sentinel" : key === "poly_shield" ? "Poly-Shield" : "Omini Glitch").join(", ")
         : "No agent modules are currently active for this community.";
       await send(token, chatId,
-        `🤖 ZORD Personal Bot\n\nAvailable commands:\n/help — show commands\n/agents — show active agents\n/status — check this community\n/ominireport — Omini Glitch weekly report\n/ask <question> — Poly-Shield community Q&A (AI service required)\n\nActive agents: ${active}`,
+        `🤖 ZORD Personal Bot\n\nAvailable commands:\n/help — show commands\n/agents — show active agents\n/status — check this community\n/ominireport — Omini Glitch weekly report\n/glitch <idea> — draft a community post\n/meme <topic> — create a text meme\n/ask <question> — Poly-Shield multilingual Q&A\n\nActive agents: ${active}`,
         message.message_id,
       );
       return;
