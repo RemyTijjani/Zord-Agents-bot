@@ -116,3 +116,18 @@ The administrator's Communities page now has independent Sentinel, Poly-Shield, 
 
 Apply the matching SQL migration to the bot's Neon branch before testing the new controls:
 `supabase/migrations/20261117150000_official_agent_runtime.sql`.
+
+
+## Community Intelligence
+
+Every Telegram group or channel has an isolated `community_intelligence_profiles` record. The shared profile powers all enabled official modules without sharing context across communities.
+
+- On bot promotion to administrator, the webhook best-effort reads the Telegram chat title and description and seeds the profile. It does not silently overwrite owner-entered profile data.
+- Admin dashboard → Communities → **Configure Community Intelligence** lets the administrator set the community name, description, subject, audience, focus topics, rules, tone, and content/meme preferences.
+- The verified Telegram group creator can also use `/communityprofile`, `/settopic`, `/setaudience`, `/setrules`, `/settone`, and `/setcontent` in the group.
+- Poly-Shield uses the profile to frame multilingual moderation and `/ask` answers. It must acknowledge uncertainty, avoid inventing policies, and never impersonate official support or request passwords, OTPs, seed phrases, or private keys.
+- Omini Glitch uses the profile for relevant community posts and memes rather than generic content.
+- Sentinel's detection can use community-specific impersonation context. Normal Telegram links are not treated as shortened scam links.
+- The profile is stored by Telegram chat ID, not globally. The runtime does not treat arbitrary member messages as verified community facts.
+
+Apply `supabase/migrations/20261117170000_community_intelligence.sql` to the bot's Neon development branch before running this version.
