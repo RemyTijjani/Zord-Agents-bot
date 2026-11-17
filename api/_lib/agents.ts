@@ -64,27 +64,42 @@ async function logAction(
 }
 
 async function getActiveModules(sql: Sql, chatId: string): Promise<ModuleKey[]> {
-  const rows = await sql`
-    SELECT DISTINCT e.module_key
+  const configured = await sql`
+    SELECT s.enabled_modules,
+           c.owner_telegram_user_id::text AS owner_telegram_user_id
     FROM public.telegram_communities c
     INNER JOIN public.community_agent_settings s ON s.telegram_chat_id = c.telegram_chat_id
-    CROSS JOIN LATERAL unnest(s.enabled_modules) AS enabled(module_key)
-    INNER JOIN public.agent_modules m ON m.module_key = enabled.module_key AND m.is_available = true
-    INNER JOIN public.rental_entitlements e
-      ON e.module_key = enabled.module_key
-     AND e.telegram_user_id = c.owner_telegram_user_id
-     AND e.status = 'active'
-     AND (e.starts_at IS NULL OR e.starts_at <= now())
-     AND (e.expires_at IS NULL OR e.expires_at > now())
     WHERE c.telegram_chat_id = ${chatId}::bigint
       AND c.bot_status = 'active'
       AND c.owner_telegram_user_id IS NOT NULL
+    LIMIT 1
   `;
-  return rows.map((row: any) => row.module_key).filter((key: string) =>
+  if (!configured[0]) return [];
+  const selected = (configured[0].enabled_modules ?? []).filter((key: string) =>
     ["sentinel", "poly_shield", "omini_glitch"].includes(key),
   ) as ModuleKey[];
-}
+  if (selected.length === 0) return [];
 
+  // Preview-only test access is restricted to communities owned by the configured ZORD admin.
+  if (
+    process.env.ZORD_AGENT_TEST_MODE === "true" &&
+    configured[0].owner_telegram_user_id === (process.env.TELEGRAM_ADMIN_ID || "1704977260")
+  ) {
+    return selected;
+  }
+
+  const rows = await sql`
+    SELECT DISTINCT e.module_key
+    FROM public.rental_entitlements e
+    INNER JOIN public.agent_modules m ON m.module_key = e.module_key AND m.is_available = true
+    WHERE e.telegram_user_id = ${configured[0].owner_telegram_user_id}::bigint
+      AND e.module_key = ANY(${selected}::text[])
+      AND e.status = 'active'
+      AND (e.starts_at IS NULL OR e.starts_at <= now())
+      AND (e.expires_at IS NULL OR e.expires_at > now())
+  `;
+  return rows.map((row: any) => row.module_key) as ModuleKey[];
+}
 const suspiciousHosts = new Set([
   "bit.ly", "tinyurl.com", "t.me", "cutt.ly", "is.gd", "rb.gy", "shorturl.at",
 ]);
@@ -106,7 +121,7 @@ function sentinelFinding(text: string): { reason: string; severity: "medium" | "
 }
 
 const toxicityTerms = [
-  "kill yourself", "go die", "you are worthless", "racial slur",
+  "kill yourself", "go die", "you are worthless",
   "vete a morir", "muérete", "ferme ta gueule", "va te faire",
   "اذهب للموت", "سأقتلك",
 ];
