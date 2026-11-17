@@ -1,7 +1,5 @@
 import { getDatabase, isActiveAdmin, isSameOrigin, readSession } from "../_lib/auth.js";
 
-const fields = ["community_name", "description", "topic", "audience", "focus_topics", "rules", "tone", "content_preferences"] as const;
-
 export default async function handler(req: any, res: any) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   const user = readSession(req);
@@ -11,7 +9,7 @@ export default async function handler(req: any, res: any) {
     const sql = getDatabase();
     if (req.method === "GET") {
       const chatId = typeof req.query?.chat_id === "string" ? req.query.chat_id : "";
-      if (!/^-?\\d{5,20}$/.test(chatId)) return res.status(400).json({ error: "Invalid Telegram chat ID." });
+      if (!/^-?\d{5,20}$/.test(chatId)) return res.status(400).json({ error: "Invalid Telegram chat ID." });
       const rows = await sql`
         SELECT c.telegram_chat_id::text AS chat_id, c.title,
           p.community_name, p.description, p.topic, p.audience, p.focus_topics,
@@ -27,7 +25,7 @@ export default async function handler(req: any, res: any) {
       if (!isSameOrigin(req)) return res.status(403).json({ error: "Invalid request origin." });
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
       const chatId = body?.chat_id;
-      if (typeof chatId !== "string" || !/^-?\\d{5,20}$/.test(chatId)) return res.status(400).json({ error: "Invalid Telegram chat ID." });
+      if (typeof chatId !== "string" || !/^-?\d{5,20}$/.test(chatId)) return res.status(400).json({ error: "Invalid Telegram chat ID." });
       const community = await sql`SELECT title, bot_status FROM public.telegram_communities WHERE telegram_chat_id = ${chatId}::bigint LIMIT 1`;
       if (!community[0] || community[0].bot_status !== "active") return res.status(409).json({ error: "Only verified active communities can update their profile." });
       const clean = (value: unknown, max = 1200) => typeof value === "string" ? value.trim().slice(0, max) : "";
