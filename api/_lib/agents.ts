@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-type Sql = ReturnType<typeof import("@neondatabase/serverless").neon>;
+type Sql = any;
 type TelegramMessage = {
   message_id: number;
   date?: number;
