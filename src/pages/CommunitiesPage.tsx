@@ -12,7 +12,8 @@ type CommunityRow = {
   enabled_modules: ModuleKey[];
 };
 
-type IntelligenceProfile = { community_name: string; description: string; topic: string; audience: string; focus_topics: string[]; rules: string; tone: string; content_preferences: string };\ntype LoadState =
+type IntelligenceProfile = { community_name: string; description: string; topic: string; audience: string; focus_topics: string[]; rules: string; tone: string; content_preferences: string };
+type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; rows: CommunityRow[] };
