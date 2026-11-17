@@ -116,7 +116,6 @@ export function randomToken(bytes = 32): string {
 }
 
 export function base64urlSha256(value: string): string {
-  const { createHash } = require("node:crypto");
   return createHash("sha256").update(value).digest("base64url");
 }
 
