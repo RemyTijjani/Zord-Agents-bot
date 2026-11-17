@@ -10,6 +10,13 @@ export default async function handler(req: any, res: any) {
     return res.status(503).json({ error: "Telegram login is not configured yet. Complete the deployment setup first." });
   }
   try {
+    // Keep the OIDC state cookie and callback on the same canonical host.
+    const canonical = new URL(appBaseUrl());
+    const requestHost = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
+    if (requestHost && requestHost.toLowerCase() !== canonical.host.toLowerCase()) {
+      const requestPath = typeof req.url === "string" ? req.url : "/api/auth/telegram/start";
+      return res.redirect(307, canonical.origin + requestPath);
+    }
     const state = randomToken();
     const nonce = randomToken();
     const verifier = randomToken(48);
