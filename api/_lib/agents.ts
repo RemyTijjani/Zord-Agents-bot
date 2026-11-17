@@ -334,7 +334,7 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
       return;
     }
     if (parsed.name === "communityprofile") {
-      await send(token, chatId, `🧠 Community Intelligence\nTopic: ${profile.topic || "Not set"}\nAudience: ${profile.audience || "Not set"}\nFocus: ${(profile.focus_topics ?? []).join(", ") || "Not set"}\nTone: ${profile.tone || "Helpful and clear"}\n\nOwner commands:\\n/settopic <main subject>\\n/setaudience <who the group is for>\\n/setrules <community rules>\\n/settone <preferred tone>\n/setcontent <content and meme preferences>`, message.message_id);
+      await send(token, chatId, `🧠 Community Intelligence\nTopic: ${profile.topic || "Not set"}\nAudience: ${profile.audience || "Not set"}\nFocus: ${(profile.focus_topics ?? []).join(", ") || "Not set"}\nTone: ${profile.tone || "Helpful and clear"}\n\nOwner commands:\n/settopic <main subject>\n/setaudience <who the group is for>\n/setrules <community rules>\n/settone <preferred tone>\n/setcontent <content and meme preferences>`, message.message_id);
       return;
     }
     if (["settopic", "setaudience", "setrules", "settone", "setcontent"].includes(parsed.name)) {
