@@ -59,7 +59,7 @@ function getChat(update: TelegramUpdate): TelegramChat | undefined {
 }
 
 async function syncCommunity(
-  sql: ReturnType<typeof neon>,
+  sql: any,
   token: string,
   event: NonNullable<TelegramUpdate["my_chat_member"]>,
 ): Promise<void> {
