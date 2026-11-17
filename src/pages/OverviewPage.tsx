@@ -22,14 +22,15 @@ type LoadState =
   | { status: "ready"; stats: Stats; recent: UpdateRow[] };
 
 type ConnectionState =
-  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "disconnected" }
   | { status: "connecting" }
-  | { status: "success"; message: string }
+  | { status: "connected"; pendingUpdates: number; hasRecentDeliveryError: boolean }
   | { status: "error"; message: string };
 
 export default function OverviewPage() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  const [connection, setConnection] = useState<ConnectionState>({ status: "idle" });
+  const [connection, setConnection] = useState<ConnectionState>({ status: "checking" });
 
   useEffect(() => {
     let active = true;
@@ -44,6 +45,22 @@ export default function OverviewPage() {
       .catch((error: unknown) => {
         if (active) setState({ status: "error", message: error instanceof Error ? error.message : "Unexpected server error." });
       });
+
+    fetch("/api/admin/telegram-status", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(response.status === 401 ? "Your administrator session has expired." : "Telegram connection status could not be checked.");
+        return response.json() as Promise<{ connected: boolean; pendingUpdates: number; hasRecentDeliveryError: boolean }>;
+      })
+      .then((data) => {
+        if (!active) return;
+        setConnection(data.connected
+          ? { status: "connected", pendingUpdates: data.pendingUpdates, hasRecentDeliveryError: data.hasRecentDeliveryError }
+          : { status: "disconnected" });
+      })
+      .catch((error: unknown) => {
+        if (active) setConnection({ status: "error", message: error instanceof Error ? error.message : "Could not check the Telegram connection." });
+      });
+
     return () => { active = false; };
   }, []);
 
@@ -59,10 +76,12 @@ export default function OverviewPage() {
       if (!response.ok || result.ok !== true) {
         throw new Error(result.error || "Telegram webhook setup failed.");
       }
-      setConnection({
-        status: "success",
-        message: "Webhook connected. Now add the bot as an administrator to a Telegram group or channel.",
-      });
+      const statusResponse = await fetch("/api/admin/telegram-status", { credentials: "same-origin", cache: "no-store" });
+      if (!statusResponse.ok) throw new Error("Webhook was registered, but its status could not be verified. Refresh the page to check it.");
+      const status = await statusResponse.json() as { connected: boolean; pendingUpdates: number; hasRecentDeliveryError: boolean };
+      setConnection(status.connected
+        ? { status: "connected", pendingUpdates: status.pendingUpdates, hasRecentDeliveryError: status.hasRecentDeliveryError }
+        : { status: "disconnected" });
     } catch (error) {
       setConnection({
         status: "error",
@@ -70,6 +89,9 @@ export default function OverviewPage() {
       });
     }
   }
+
+  const isConnecting = connection.status === "connecting";
+  const isConnected = connection.status === "connected";
 
   return (
     <>
@@ -89,15 +111,23 @@ export default function OverviewPage() {
           <section className="card">
             <h2 className="section-title">Telegram bot connection</h2>
             <p className="muted">Register the secure webhook so Telegram can notify ZORD when the bot is added to, removed from, or has its permissions changed in a group or channel.</p>
+            {connection.status === "checking" && <p className="muted" role="status">Checking Telegram connection...</p>}
+            {isConnected && (
+              <p className="notice notice-success" role="status">
+                Telegram webhook is connected and verified.
+                {connection.status === "connected" && connection.hasRecentDeliveryError && " Telegram reports a recent delivery issue; check the activity below."}
+                {connection.status === "connected" && connection.pendingUpdates > 0 && ` ${connection.pendingUpdates} update(s) are waiting to be delivered.`}
+              </p>
+            )}
+            {connection.status === "disconnected" && <p className="notice notice-error" role="status">Telegram webhook is not connected.</p>}
             <button
               type="button"
               className="btn"
               onClick={() => void connectTelegram()}
-              disabled={connection.status === "connecting"}
+              disabled={isConnecting || connection.status === "checking"}
             >
-              {connection.status === "connecting" ? "Connecting..." : connection.status === "success" ? "Reconnect webhook" : "Connect Telegram bot"}
+              {isConnecting ? "Connecting..." : isConnected ? "Reconnect webhook" : "Connect Telegram bot"}
             </button>
-            {connection.status === "success" && <p className="notice notice-success" role="status">{connection.message}</p>}
             {connection.status === "error" && <p className="notice notice-error" role="alert">{connection.message}</p>}
           </section>
 
