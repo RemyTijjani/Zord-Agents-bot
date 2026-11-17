@@ -170,20 +170,31 @@ function profileContext(profile: CommunityProfile): string {
   ].join("\n");
 }
 async function updateProfileFromOwner(sql: Sql, chatId: string, userId: string, field: string, value: string): Promise<boolean> {
-  const allowedFields: Record<string, string> = {
-    topic: "topic", audience: "audience", rules: "rules", tone: "tone", content: "content_preferences",
-  };
-  const column = allowedFields[field];
-  if (!column || !value.trim() || value.length > 1200) return false;
+  const allowed = new Set(["topic", "audience", "rules", "tone", "content"]);
+  if (!allowed.has(field) || !value.trim() || value.length > 1200) return false;
   const owner = await sql`
     SELECT owner_telegram_user_id::text AS owner_id FROM public.telegram_communities
     WHERE telegram_chat_id = ${chatId}::bigint AND bot_status = 'active' LIMIT 1
   `;
   if (!owner[0] || owner[0].owner_id !== userId) return false;
   await sql`
-    INSERT INTO public.community_intelligence_profiles (telegram_chat_id, community_name, ${sql(column)})
-    VALUES (${chatId}::bigint, '', ${value.trim()})
-    ON CONFLICT (telegram_chat_id) DO UPDATE SET ${sql(column)} = EXCLUDED.${sql(column)}, updated_at = now()
+    INSERT INTO public.community_intelligence_profiles
+      (telegram_chat_id, topic, audience, rules, tone, content_preferences)
+    VALUES (
+      ${chatId}::bigint,
+      CASE WHEN ${field} = 'topic' THEN ${value.trim()} ELSE '' END,
+      CASE WHEN ${field} = 'audience' THEN ${value.trim()} ELSE '' END,
+      CASE WHEN ${field} = 'rules' THEN ${value.trim()} ELSE '' END,
+      CASE WHEN ${field} = 'tone' THEN ${value.trim()} ELSE 'helpful, respectful and clear' END,
+      CASE WHEN ${field} = 'content' THEN ${value.trim()} ELSE '' END
+    )
+    ON CONFLICT (telegram_chat_id) DO UPDATE SET
+      topic = CASE WHEN ${field} = 'topic' THEN EXCLUDED.topic ELSE community_intelligence_profiles.topic END,
+      audience = CASE WHEN ${field} = 'audience' THEN EXCLUDED.audience ELSE community_intelligence_profiles.audience END,
+      rules = CASE WHEN ${field} = 'rules' THEN EXCLUDED.rules ELSE community_intelligence_profiles.rules END,
+      tone = CASE WHEN ${field} = 'tone' THEN EXCLUDED.tone ELSE community_intelligence_profiles.tone END,
+      content_preferences = CASE WHEN ${field} = 'content' THEN EXCLUDED.content_preferences ELSE community_intelligence_profiles.content_preferences END,
+      updated_at = now()
   `;
   return true;
 }
