@@ -1,9 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 
-type EntitlementStatus = "pending" | "active" | "suspended" | "revoked" | "expired";
-type ModuleKey = "sentinel" | "poly_shield" | "omini_glitch";
-
 function safeEqualHex(left: string, right: string): boolean {
   if (!/^[a-f0-9]{64}$/i.test(left) || !/^[a-f0-9]{64}$/i.test(right)) return false;
   const a = Buffer.from(left, "hex");
