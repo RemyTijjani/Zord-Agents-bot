@@ -336,9 +336,11 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
     if (parsed.name === "communityprofile") {
       await send(token, chatId, `🧠 Community Intelligence\\nTopic: ${profile.topic || "Not set"}\\nAudience: ${profile.audience || "Not set"}\\nFocus: ${(profile.focus_topics ?? []).join(", ") || "Not set"}\\nTone: ${profile.tone || "Helpful and clear"}\\n\\nOwner commands:\\n/settopic <main subject>\\n/setaudience <who the group is for>\\n/setrules <community rules>\\n/settone <preferred tone>\\n/setcontent <content and meme preferences>`, message.message_id);
       return;
-    }\n    if (["settopic", "setaudience", "setrules", "settone", "setcontent"].includes(parsed.name)) {
+    }
+    if (["settopic", "setaudience", "setrules", "settone", "setcontent"].includes(parsed.name)) {
       const field = ({ settopic: "topic", setaudience: "audience", setrules: "rules", settone: "tone", setcontent: "content" } as Record<string, string> )[parsed.name];
-      const saved = await updateProfileFromOwner(sql, chatId, message.from?.id === undefined ? "" : String(message.from.id), field, parsed.args);\n      await send(token, chatId, saved ? "✅ Community Intelligence profile updated. All enabled agents will use the new settings." : "Only the verified group owner can update this profile. Use the command with a value up to 1,200 characters.", message.message_id);
+      const saved = await updateProfileFromOwner(sql, chatId, message.from?.id === undefined ? "" : String(message.from.id), field, parsed.args);
+      await send(token, chatId, saved ? "✅ Community Intelligence profile updated. All enabled agents will use the new settings." : "Only the verified group owner can update this profile. Use the command with a value up to 1,200 characters.", message.message_id);
       return;
     }
     if (parsed.name === "status") {
