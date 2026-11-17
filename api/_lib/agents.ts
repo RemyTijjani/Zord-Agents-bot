@@ -43,6 +43,32 @@ async function send(token: string, chatId: string, text: string, replyTo?: numbe
     disable_web_page_preview: true,
   });
 }
+ 
+async function aiCompletion(system: string, user: string, maxTokens = 350): Promise<string | null> {
+  const apiKey = process.env.ZORD_AI_API_KEY;
+  const model = process.env.ZORD_AI_MODEL;
+  if (!apiKey || !model) return null;
+  const endpoint = process.env.ZORD_AI_API_URL || "https://api.openai.com/v1/chat/completions";
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        max_tokens: maxTokens,
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const content = payload.choices?.[0]?.message?.content;
+    return typeof content === "string" ? content.trim().slice(0, 3500) : null;
+  } catch {
+    return null;
+  }
+}
 
 async function logAction(
   sql: Sql,
@@ -149,17 +175,53 @@ async function runSentinel(sql: Sql, token: string, message: TelegramMessage, te
 }
 
 async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, text: string): Promise<void> {
-  if (!polyShieldFinding(text)) return;
+  let flagged = polyShieldFinding(text);
+  let severity: "low" | "medium" | "high" = flagged ? "medium" : "low";
+  let reason = "keyword_fallback";
+  const classification = await aiCompletion(
+    "You are Poly-Shield, a multilingual Telegram community safety moderator. Classify only direct personal abuse, targeted harassment, hateful attacks, or credible threats. Do not flag disagreement, criticism, jokes without a target, reclaimed language, or quoted educational content. Understand the message in any language. Return only JSON: {\"flagged\":boolean,\"severity\":\"low\"|\"medium\"|\"high\",\"reason\":\"short label\"}.",
+    text,
+    100,
+  );
+  if (classification) {
+    try {
+      const parsed = JSON.parse(classification) as { flagged?: boolean; severity?: string; reason?: string };
+      if (typeof parsed.flagged === "boolean") {
+        flagged = parsed.flagged;
+        severity = parsed.severity === "high" ? "high" : parsed.severity === "low" ? "low" : "medium";
+        reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 80) : "multilingual_toxicity";
+      }
+    } catch {
+      // Retain the conservative local keyword result if the model returns malformed JSON.
+    }
+  }
+  if (!flagged) return;
   const chatId = String(message.chat.id);
   const userId = message.from?.id === undefined ? null : String(message.from.id);
-  await logAction(sql, chatId, userId, "poly_shield", "toxic_language_flagged", "medium", text);
+  await logAction(sql, chatId, userId, "poly_shield", "toxic_language_flagged", severity, text, { reason });
   await send(token, chatId, "🧩 Poly-Shield: Please keep the conversation respectful. This message has been flagged for moderator review.", message.message_id);
 }
 
 async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage, text: string): Promise<void> {
   const parsed = command(text);
-  if (!parsed || !["ominireport", "glitchreport"].includes(parsed.name)) return;
+  if (!parsed) return;
   const chatId = String(message.chat.id);
+  const userId = message.from?.id === undefined ? null : String(message.from.id);
+  if (["glitch", "meme"].includes(parsed.name)) {
+    if (!parsed.args) {
+      await send(token, chatId, "Usage: /glitch <announcement idea> or /meme <topic>", message.message_id);
+      return;
+    }
+    const output = await aiCompletion(
+      "You are Omini Glitch, a creative Telegram community assistant. Produce a concise, original, friendly result suitable for a public group. For /meme, write a funny text-only meme caption; for /glitch, draft a useful community post or announcement. Do not invent official facts, dates, prizes, or promises. Keep it under 700 characters.",
+      `${parsed.name}: ${parsed.args}`,
+      220,
+    );
+    await send(token, chatId, output ?? "Omini Glitch content assistance needs the ZORD AI service to be configured.", message.message_id);
+    await logAction(sql, chatId, userId, "omini_glitch", parsed.name === "meme" ? "meme_created" : "community_content_created", "info", text);
+    return;
+  }
+  if (!["ominireport", "glitchreport", "glitch", "meme"].includes(parsed.name)) return;
   const rows = await sql`
     SELECT module_key, action_key, severity, COUNT(*)::int AS total
     FROM public.agent_action_logs
@@ -173,7 +235,7 @@ async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage,
     ? rows.map((row: any) => `• ${row.module_key}: ${row.action_key} — ${row.total}`).join("\n")
     : "No recorded agent actions in the last 7 days.";
   await send(token, chatId, `🧠 Omini Glitch — 7-day community report\n\n${report}`, message.message_id);
-  await logAction(sql, chatId, message.from?.id === undefined ? null : String(message.from.id), "omini_glitch", "community_report_requested", "info", "");
+  await logAction(sql, chatId, userId, "omini_glitch", "community_report_requested", "info", "");
 }
 
 export async function processAgentMessage(sql: Sql, token: string, message: TelegramMessage): Promise<void> {
@@ -203,9 +265,17 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
       return;
     }
     if (parsed.name === "ask" && modules.includes("poly_shield")) {
-      await send(token, chatId, process.env.ZORD_AI_API_KEY
-        ? "Poly-Shield AI is configured but its response provider has not yet been connected."
-        : "Poly-Shield Q&A is not available yet because the AI service has not been configured.", message.message_id);
+      if (!parsed.args) {
+        await send(token, chatId, "Usage: /ask <your question>", message.message_id);
+        return;
+      }
+      const answer = await aiCompletion(
+        "You are Poly-Shield, a multilingual assistant for a Telegram community. Answer clearly in the language used by the user. Be helpful and concise, do not claim to be a human moderator, and do not invent community rules or official announcements.",
+        parsed.args,
+        300,
+      );
+      await send(token, chatId, answer ?? "Poly-Shield Q&A needs the ZORD AI service to be configured.", message.message_id);
+      await logAction(sql, chatId, message.from?.id === undefined ? null : String(message.from.id), "poly_shield", "community_question_answered", "info", text);
       return;
     }
     if (["ominireport", "glitchreport"].includes(parsed.name) && modules.includes("omini_glitch")) {
