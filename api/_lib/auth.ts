@@ -133,7 +133,7 @@ export async function verifyTelegramIdToken(token: string, expectedNonce: string
   if (header.alg !== "RS256" || typeof header.kid !== "string") throw new Error("Unsupported Telegram token signature.");
   const response = await fetch("https://oauth.telegram.org/.well-known/jwks.json", { signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error("Could not retrieve Telegram signing keys.");
-  const jwks = await response.json() as { keys?: JsonWebKey[] };
+  const jwks = await response.json() as { keys?: any[] };
   const jwk = jwks.keys?.find((key: any) => key.kid === header.kid && key.kty === "RSA");
   if (!jwk) throw new Error("Telegram signing key was not found.");
   const publicKey = createPublicKey({ key: jwk, format: "jwk" });
