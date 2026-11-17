@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
 import StatusBadge from "../components/StatusBadge";
 
 type Stats = {
@@ -27,45 +26,18 @@ export default function OverviewPage() {
 
   useEffect(() => {
     let active = true;
-    (async () => {
-      const [communities, pending, updates, failed, recent] = await Promise.all([
-        supabase.from("telegram_communities").select("id", { count: "exact", head: true }),
-        supabase.from("telegram_communities").select("id", { count: "exact", head: true }).eq("status", "pending"),
-        supabase.from("telegram_updates").select("update_id", { count: "exact", head: true }),
-        supabase.from("telegram_updates").select("update_id", { count: "exact", head: true }).eq("status", "failed"),
-        supabase
-          .from("telegram_updates")
-          .select("update_id, update_type, status, error, received_at")
-          .order("received_at", { ascending: false })
-          .limit(10),
-      ]);
-
-      const failure = [communities, pending, updates, failed, recent].find((result) => result.error);
-      if (failure?.error) {
-        if (active) setState({ status: "error", message: failure.error.message });
-        return;
-      }
-      if (!Array.isArray(recent.data)) {
-        if (active) setState({ status: "error", message: "Unexpected response while loading updates." });
-        return;
-      }
-
-      if (active) {
-        setState({
-          status: "ready",
-          stats: {
-            communities: communities.count ?? 0,
-            pendingCommunities: pending.count ?? 0,
-            updates: updates.count ?? 0,
-            failedUpdates: failed.count ?? 0,
-          },
-          recent: recent.data as UpdateRow[],
-        });
-      }
-    })();
-    return () => {
-      active = false;
-    };
+    fetch("/api/admin/overview", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(response.status === 401 ? "Your administrator session has expired." : "The overview could not be loaded.");
+        return response.json() as Promise<{ stats: Stats; recent: UpdateRow[] }>;
+      })
+      .then((data) => {
+        if (active) setState({ status: "ready", stats: data.stats, recent: data.recent });
+      })
+      .catch((error: unknown) => {
+        if (active) setState({ status: "error", message: error instanceof Error ? error.message : "Unexpected server error." });
+      });
+    return () => { active = false; };
   }, []);
 
   return (
@@ -89,7 +61,7 @@ export default function OverviewPage() {
               <div className="stat-value">{state.stats.communities}</div>
             </div>
             <div className="card">
-              <div className="stat-label">Awaiting setup</div>
+              <div className="stat-label">Restricted communities</div>
               <div className="stat-value">{state.stats.pendingCommunities}</div>
             </div>
             <div className="card">
@@ -110,21 +82,14 @@ export default function OverviewPage() {
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr>
-                      <th>Received</th>
-                      <th>Type</th>
-                      <th>Status</th>
-                      <th>Details</th>
-                    </tr>
+                    <tr><th>Received</th><th>Type</th><th>Status</th><th>Details</th></tr>
                   </thead>
                   <tbody>
                     {state.recent.map((row) => (
                       <tr key={row.update_id}>
                         <td>{new Date(row.received_at).toLocaleString()}</td>
                         <td>{row.update_type}</td>
-                        <td>
-                          <StatusBadge status={row.status} />
-                        </td>
+                        <td><StatusBadge status={row.status} /></td>
                         <td className="muted">{row.error ?? "-"}</td>
                       </tr>
                     ))}
