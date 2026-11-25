@@ -25,7 +25,8 @@ export default async function handler(req:any,res:any) {
     try {
       const r=aiKey&&aiUrl ? await postJson(aiUrl,{Authorization:`Bearer ${aiKey}`},{model,temperature:0,max_tokens:8,messages:[{role:"user",content:"Reply with OK."}]}) : {ok:false,status:0,payload:null};
       const good=Boolean(r.ok && typeof r.payload?.choices?.[0]?.message?.content==="string");
-      ai[agent]={passed:good,http_status:r.status,error:good?null:safeMessage(r.payload?.error?.message??r.payload?.message,aiKey??"")};
+      const err=r.payload?.error;
+      ai[agent]={passed:good,http_status:r.status,error:good?null:safeMessage(typeof err==="string"?err:(err?.message??r.payload?.message),aiKey??""),error_code:typeof err?.code==="string"?err.code:null,error_status:typeof err?.status==="string"?err.status:null};
     } catch(e:any) { ai[agent]={passed:false,http_status:0,error:safeMessage(e?.name??"request_failed",aiKey??"")}; }
   }
   let telegram:any={token_valid:false,webhook_configured:false};
@@ -39,5 +40,7 @@ export default async function handler(req:any,res:any) {
     let host=null; try { host=hookResult.url?new URL(hookResult.url).host:null; } catch {}
     telegram={token_valid:tokenValid,webhook_configured:Boolean(hook.ok&&hook.payload?.ok===true&&hookResult.url),webhook_host:host,pending_update_count:Number.isInteger(hookResult.pending_update_count)?hookResult.pending_update_count:null,last_error_date_present:Number.isFinite(hookResult.last_error_date)};
   } catch { telegram={token_valid:false,webhook_configured:false}; }
-  return res.status(200).json({ai_models:ai,telegram});
+  let endpoint=null;
+  try { const u=new URL(aiUrl??""); endpoint={host:u.host,path:u.pathname}; } catch {}
+  return res.status(200).json({ai_endpoint:endpoint,ai_models:ai,telegram});
 }
