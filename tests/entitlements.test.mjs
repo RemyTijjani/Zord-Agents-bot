@@ -5,6 +5,7 @@ import { resolveActiveModules } from "../api/_lib/entitlements.mjs";
 const now = Date.parse("2026-11-25T12:00:00.000Z");
 const activeForA = {
   telegram_chat_id: "-1001111111111",
+  telegram_user_id: "1704977260",
   module_key: "omini_glitch",
   status: "active",
   starts_at: "2026-11-25T11:00:00.000Z",
@@ -14,6 +15,7 @@ const activeForA = {
 function resolve(communityId, entitlements = [activeForA]) {
   return resolveActiveModules({
     communityId,
+    ownerId: "1704977260",
     selectedModules: ["sentinel", "poly_shield", "omini_glitch"],
     availableModules: ["sentinel", "poly_shield", "omini_glitch"],
     entitlements,
@@ -40,10 +42,22 @@ test("expired and not-yet-started rentals do not unlock Omini Glitch", () => {
 test("unavailable modules cannot be enabled by a rental", () => {
   const result = resolveActiveModules({
     communityId: "-1001111111111",
+    ownerId: "1704977260",
     selectedModules: ["sentinel", "omini_glitch"],
     availableModules: ["sentinel"],
     entitlements: [activeForA],
     now,
   });
   assert.deepEqual(result, ["sentinel"]);
+});
+
+test("an entitlement for a different owner cannot unlock the community", () => {
+  assert.deepEqual(resolveActiveModules({
+    communityId: "-1001111111111",
+    ownerId: "9999999999",
+    selectedModules: ["sentinel", "poly_shield", "omini_glitch"],
+    availableModules: ["sentinel", "poly_shield", "omini_glitch"],
+    entitlements: [activeForA],
+    now,
+  }), ["sentinel", "poly_shield"]);
 });
