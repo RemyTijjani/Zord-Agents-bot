@@ -107,14 +107,6 @@ async function getActiveModules(sql: Sql, chatId: string): Promise<ModuleKey[]> 
   ) as ModuleKey[];
   if (selected.length === 0) return [];
 
-  // Preview-only test access is restricted to communities owned by the configured ZORD admin.
-  if (
-    process.env.ZORD_AGENT_TEST_MODE === "true" &&
-    configured[0].owner_telegram_user_id === (process.env.TELEGRAM_ADMIN_ID || "1704977260")
-  ) {
-    return selected;
-  }
-
   // Availability is global, but paid Omini Glitch access is community-specific.
   const [availableRows, entitlementRows] = await Promise.all([
     sql`
