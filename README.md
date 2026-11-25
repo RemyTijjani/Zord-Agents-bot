@@ -87,9 +87,9 @@ Send a signed body `{"action":"check","telegram_chat_id":"-100..."}`. The bot re
 The three modules remain globally disabled until their execution handlers, moderation permissions, and operational safeguards have been implemented and tested. An active rental alone does not switch a module on.
 
 
-## Official agent runtime (feature branch)
+## Official agent runtime
 
-The central webhook now accepts Telegram `message` and `channel_post` updates in addition to membership updates, and routes eligible messages through the three independent modules.
+The central webhook accepts Telegram `my_chat_member`, `chat_member`, `message`, `edited_message`, `channel_post`, and `edited_channel_post` updates. It verifies community ownership, refreshes permissions on ownership changes, and routes eligible content through the independent modules.
 
 - **Sentinel:** checks message text for high-confidence scam patterns and excessive links. It deletes only high-confidence matches (and only when Telegram grants delete permission); detections and actions are logged without storing raw message text.
 - **Poly-Shield:** applies a conservative local toxicity fallback and, when an AI provider is configured, multilingual classification. `/ask <question>` provides multilingual community Q&A. Flagged messages are sent for moderator review; Poly-Shield does not automatically delete them.
@@ -110,9 +110,11 @@ The AI key is never exposed to browser code. Without these values, the determini
 The administrator's Communities page now has independent Sentinel, Poly-Shield, and Omini Glitch switches for each verified community. Settings are saved server-side and recorded in the audit log.
 
 - Normal operation requires a verified community, a module selected for that community, global module availability, and a current active rental entitlement for the verified community owner.
-- For controlled pre-marketplace testing only, set `ZORD_AGENT_TEST_MODE=true` in the **Preview** environment. This bypasses rental checks only for communities whose verified creator is the configured `TELEGRAM_ADMIN_ID`. Do not set this variable in Production.
+- There is no test-mode or rental-bypass switch. Paid Omini Glitch access is always bound to the exact verified Telegram community and its current owner.
 - Global module availability remains off by default. Do not enable public rentals until live-group tests and the AI provider configuration are complete.
-- The Telegram webhook registration now subscribes to `my_chat_member`, `message`, and `channel_post`.
+- Module execution is gated by the bot's current Telegram permissions: Sentinel requires delete-message permission; Poly-Shield and Omini Glitch require permission to send messages (including channel post permission for channels).
+- Edited messages and channel posts are rechecked. Webhook update processing uses a five-minute processing lease to reduce duplicate concurrent work.
+- Ordinary member updates are not catalogued or stored as member profiles; `chat_member` is used only to refresh verified community ownership when a creator transition occurs.
 
 The Neon schema is managed only through `db/migrations/`. Run `npm run migrate` with the bot's `DATABASE_URL` to apply pending, checksum-verified migrations. Do not use Supabase CLI or Supabase migrations for this project.
 
@@ -127,6 +129,8 @@ Every Telegram group or channel has an isolated `community_intelligence_profiles
 - Poly-Shield uses the profile to frame multilingual moderation and `/ask` answers. It must acknowledge uncertainty, avoid inventing policies, and never impersonate official support or request passwords, OTPs, seed phrases, or private keys.
 - Omini Glitch uses the profile for relevant community posts and memes rather than generic content.
 - Sentinel's detection can use community-specific impersonation context. Normal Telegram links are not treated as shortened scam links.
+- Sentinel, Poly-Shield and Omini Glitch use the same normalized, community-scoped intelligence context; Sentinel also uses the configured community name for contextual impersonation detection.
+- Incoming message text is bounded before processing. Raw message text is not stored as shared memory; action logs retain fingerprints and non-content metadata.
 - The profile is stored by Telegram chat ID, not globally. The runtime does not treat arbitrary member messages as verified community facts.
 
 Community Intelligence is part of the existing Neon schema and is tracked by the Neon adoption baseline.
@@ -140,5 +144,5 @@ Neon is the sole database for this repository. The previous Supabase project was
 - `public.schema_migrations` records each applied migration and its SHA-256 checksum.
 - Run `npm run migrate` with `DATABASE_URL` set to the bot's Neon database.
 - Applied migration files are immutable. Add a new numbered file for every schema change.
-- The adoption baseline records the existing Neon schema without recreating it. The first forward migration adds community scoping to rental entitlements.
+- The adoption baseline records the existing Neon schema without recreating it. The first forward migration adds community scoping to rental entitlements. Migration `0003_telegram_operations_permissions` adds the per-community Telegram permission snapshot and webhook lease index without deleting or resetting existing records.
 - The CI workflow runs `npm ci`, `npm test`, and `npm run build` on pull requests and main pushes.
