@@ -3,6 +3,7 @@ import { resolveActiveModules } from "./entitlements.mjs";
 import { buildCommunityProfileContext, isVerifiedCommunityOwner } from "./community-intelligence.mjs";
 import { detectSentinelThreat } from "./sentinel.mjs";
 import { detectPolyShieldToxicity } from "./poly-shield.mjs";
+import { formatCommunityReport, resolveOminiGeneration } from "./omini-glitch.mjs";
 
 type Sql = any;
 type TelegramMessage = {
@@ -254,8 +255,9 @@ async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage,
       `${parsed.name}: ${parsed.args}`,
       220,
     );
-    await send(token, chatId, output ?? "Omini Glitch content assistance needs the ZORD AI service to be configured.", message.message_id);
-    await logAction(sql, chatId, userId, "omini_glitch", parsed.name === "meme" ? "meme_created" : "community_content_created", "info", text);
+    const result = resolveOminiGeneration(parsed.name, output);
+    await send(token, chatId, result.response, message.message_id);
+    await logAction(sql, chatId, userId, "omini_glitch", result.action, result.severity, text);
     return;
   }
   if (!["ominireport", "glitchreport", "glitch", "meme"].includes(parsed.name)) return;
@@ -268,9 +270,7 @@ async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage,
     ORDER BY module_key, total DESC
     LIMIT 12
   `;
-  const report = rows.length
-    ? rows.map((row: any) => `• ${row.module_key}: ${row.action_key} — ${row.total}`).join("\n")
-    : "No recorded agent actions in the last 7 days.";
+  const report = formatCommunityReport(rows);
   await send(token, chatId, `🧠 Omini Glitch — 7-day community report\n\n${report}`, message.message_id);
   await logAction(sql, chatId, userId, "omini_glitch", "community_report_requested", "info", "");
 }
