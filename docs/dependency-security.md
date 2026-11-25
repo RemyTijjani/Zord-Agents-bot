@@ -12,3 +12,5 @@ Advisories:
 - https://github.com/advisories/GHSA-337j-9hxr-rhxg
 
 The generated lockfile is committed only after CI confirms installation, tests, the dependency audit, and the production build.
+
+Lockfile refreshes are serialized per branch to avoid concurrent updates.
