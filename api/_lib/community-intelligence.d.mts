@@ -26,3 +26,5 @@ export function isVerifiedCommunityOwner(
   requesterId: string | number,
 ): boolean;
 export function buildCommunityProfileContext(input: CommunityProfileInput): string;
+
+export function buildSharedCommunityContext(input: CommunityProfileInput): string;
