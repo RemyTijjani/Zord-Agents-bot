@@ -65,3 +65,13 @@ test("empty and non-string payloads are ignored", () => {
   assert.equal(detectSentinelThreat(null), null);
   assert.equal(detectSentinelThreat({ text: "free crypto https://claim.example" }), null);
 });
+
+
+test("community-specific official impersonation is detected using only that community profile", () => {
+  const profile = { community_name: "Northside Realty" };
+  assert.deepEqual(
+    detectSentinelThreat("Northside Realty admin, DM me for payment help", profile),
+    { reason: "possible_admin_impersonation", severity: "medium" },
+  );
+  assert.equal(detectSentinelThreat("Northside Realty admin, DM me for payment help", { community_name: "Different Group" }), null);
+});

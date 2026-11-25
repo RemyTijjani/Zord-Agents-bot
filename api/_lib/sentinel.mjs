@@ -12,7 +12,14 @@ function extractUrls(text) {
   return text.match(/https?:\/\/[^\s<>()]+/gi) ?? [];
 }
 
-export function detectSentinelThreat(input) {
+function hasCommunityImpersonation(text, profile) {
+  const name = typeof profile?.community_name === "string" ? profile.community_name.trim() : "";
+  if (!name) return false;
+  const escaped = name.replace(/[.*+?^\${}()|[\]\\]/g, "\\export function detectSentinelThreat(input) {");
+  return new RegExp("\\b" + escaped + "\\s+(?:official\\s+)?(?:support|admin|moderator|team)\\b", "i").test(text);
+}
+
+export function detectSentinelThreat(input, profile = null) {
   const text = typeof input === "string" ? input.slice(0, 4000) : "";
   if (!text.trim()) return null;
 
@@ -40,7 +47,7 @@ export function detectSentinelThreat(input) {
     return { reason: "credential_request_without_link", severity: "medium" };
   }
 
-  if (impersonation.test(text) && outreach.test(text)) {
+  if ((impersonation.test(text) || hasCommunityImpersonation(text, profile)) && outreach.test(text)) {
     return { reason: "possible_admin_impersonation", severity: urls.length ? "high" : "medium" };
   }
 

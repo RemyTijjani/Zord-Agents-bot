@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { resolveActiveModules } from "./entitlements.mjs";
-import { buildCommunityProfileContext, isVerifiedCommunityOwner } from "./community-intelligence.mjs";
+import { isVerifiedCommunityOwner, buildSharedCommunityContext } from "./community-intelligence.mjs";
 import { detectSentinelThreat } from "./sentinel.mjs";
 import { detectPolyShieldToxicity } from "./poly-shield.mjs";
 import { formatCommunityReport, resolveOminiGeneration } from "./omini-glitch.mjs";
@@ -195,8 +195,8 @@ async function updateProfileFromOwner(sql: Sql, chatId: string, userId: string, 
   return true;
 }
 
-async function runSentinel(sql: Sql, token: string, message: TelegramMessage, text: string): Promise<void> {
-  const finding = detectSentinelThreat(text);
+async function runSentinel(sql: Sql, token: string, message: TelegramMessage, text: string, profile: CommunityProfile): Promise<void> {
+  const finding = detectSentinelThreat(text, profile);
   if (!finding) return;
   const chatId = String(message.chat.id);
   const userId = message.from?.id === undefined ? null : String(message.from.id);
@@ -212,12 +212,12 @@ async function runSentinel(sql: Sql, token: string, message: TelegramMessage, te
   }
 }
 
-async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, text: string, profile: CommunityProfile): Promise<void> {
+async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, text: string, sharedContext: string): Promise<void> {
   let flagged = detectPolyShieldToxicity(text);
   let severity: "low" | "medium" | "high" = flagged ? "medium" : "low";
   let reason = "keyword_fallback";
   const classification = await aiCompletion(
-    `You are Poly-Shield, a multilingual Telegram community safety moderator for this specific community. Use the profile to understand on-topic discussion. Classify only direct personal abuse, targeted harassment, hateful attacks or credible threats. Do not flag disagreement, criticism, jokes without a target, reclaimed language or quoted educational content. Understand any language. Community profile:\n${buildCommunityProfileContext(profile)}\nReturn only JSON: {"flagged":boolean,"severity":"low"|"medium"|"high","reason":"short label"}.`,
+    `You are Poly-Shield, a multilingual Telegram community safety moderator for this specific community. Use the profile to understand on-topic discussion. Classify only direct personal abuse, targeted harassment, hateful attacks or credible threats. Do not flag disagreement, criticism, jokes without a target, reclaimed language or quoted educational content. Understand any language. Community profile:\n${sharedContext}\nReturn only JSON: {"flagged":boolean,"severity":"low"|"medium"|"high","reason":"short label"}.`,
     text,
     100,
   );
@@ -240,7 +240,7 @@ async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, 
   await send(token, chatId, "🧩 Poly-Shield: Please keep the conversation respectful. This message has been flagged for moderator review.", message.message_id);
 }
 
-async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage, text: string, profile: CommunityProfile): Promise<void> {
+async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage, text: string, sharedContext: string): Promise<void> {
   const parsed = command(text);
   if (!parsed) return;
   const chatId = String(message.chat.id);
@@ -251,7 +251,7 @@ async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage,
       return;
     }
     const output = await aiCompletion(
-      `You are Omini Glitch. Make every result specific to this community subject, audience and content preferences, never generic. Match its tone. /meme creates a funny relevant meme; /glitch drafts an on-topic useful post. Do not invent official facts, dates, prizes or promises. Keep under 700 characters.\nCommunity profile:\n${buildCommunityProfileContext(profile)}`,
+      `You are Omini Glitch. Make every result specific to this community subject, audience and content preferences, never generic. Match its tone. /meme creates a funny relevant meme; /glitch drafts an on-topic useful post. Do not invent official facts, dates, prizes or promises. Keep under 700 characters.\nCommunity profile:\n${sharedContext}`,
       `${parsed.name}: ${parsed.args}`,
       220,
     );
@@ -277,13 +277,14 @@ async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage,
 
 export async function processAgentMessage(sql: Sql, token: string, message: TelegramMessage): Promise<void> {
   if (!message?.chat?.id || message.from?.is_bot) return;
-  const text = (message.text ?? message.caption ?? "").trim();
+  const text = (message.text ?? message.caption ?? "").trim().slice(0, 4000);
   if (!text) return;
 
   const chatId = String(message.chat.id);
   const parsed = command(text);
   const modules = await getActiveModules(sql, chatId);
   const profile = await getCommunityProfile(sql, chatId, message.chat.title ?? "");
+  const sharedContext = buildSharedCommunityContext(profile);
 
   if (parsed) {
     if (["start", "help", "agents"].includes(parsed.name)) {
@@ -327,7 +328,7 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
         return;
       }
       const answer = await aiCompletion(
-        `You are Poly-Shield, a multilingual assistant for this specific Telegram community. Answer in the user language using the group topic, audience and rules. If the profile does not establish an answer, say so and suggest an official source or human admin. Never claim to be official company support or request passwords, seed phrases, OTPs or private keys.\nCommunity profile:\n${buildCommunityProfileContext(profile)}`,
+        `You are Poly-Shield, a multilingual assistant for this specific Telegram community. Answer in the user language using the group topic, audience and rules. If the profile does not establish an answer, say so and suggest an official source or human admin. Never claim to be official company support or request passwords, seed phrases, OTPs or private keys.\nCommunity profile:\n${sharedContext}`,
         parsed.args,
         300,
       );
@@ -336,12 +337,12 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
       return;
     }
     if (["ominireport", "glitchreport"].includes(parsed.name) && modules.includes("omini_glitch")) {
-      await runOminiGlitch(sql, token, message, text, profile);
+      await runOminiGlitch(sql, token, message, text, sharedContext);
       return;
     }
   }
 
-  if (modules.includes("sentinel")) await runSentinel(sql, token, message, text);
-  if (modules.includes("poly_shield")) await runPolyShield(sql, token, message, text, profile);
-  if (modules.includes("omini_glitch")) await runOminiGlitch(sql, token, message, text, profile);
+  if (modules.includes("sentinel")) await runSentinel(sql, token, message, text, profile);
+  if (modules.includes("poly_shield")) await runPolyShield(sql, token, message, text, sharedContext);
+  if (modules.includes("omini_glitch")) await runOminiGlitch(sql, token, message, text, sharedContext);
 }

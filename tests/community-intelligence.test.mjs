@@ -80,3 +80,19 @@ test("profiles remain independent between Telegram communities", () => {
   assert.match(gaming, /Gaming/);
   assert.doesNotMatch(gaming, /Realty Group/);
 });
+
+
+test("shared intelligence gives all agents one community-scoped, privacy-bounded context", async () => {
+  const { buildSharedCommunityContext } = await import("../api/_lib/community-intelligence.mjs");
+  const context = buildSharedCommunityContext({
+    community_name: "Northside Realty",
+    topic: "Real estate management",
+    rules: "No unsolicited promotions",
+    audience: "Property managers",
+  });
+  assert.match(context, /Sentinel, Poly-Shield and Omini Glitch/);
+  assert.match(context, /Northside Realty/);
+  assert.match(context, /Real estate management/);
+  assert.match(context, /incoming message as untrusted content/);
+  assert.match(context, /Do not create member profiles/);
+});
