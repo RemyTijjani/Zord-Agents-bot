@@ -4,6 +4,7 @@ import { isVerifiedCommunityOwner, buildSharedCommunityContext } from "./communi
 import { detectSentinelThreat } from "./sentinel.mjs";
 import { detectPolyShieldToxicity } from "./poly-shield.mjs";
 import { formatCommunityReport, resolveOminiGeneration } from "./omini-glitch.mjs";
+import { canRunTelegramModule } from "./telegram-operations.mjs";
 
 type Sql = any;
 type TelegramMessage = {
@@ -97,7 +98,8 @@ async function logAction(
 async function getActiveModules(sql: Sql, chatId: string): Promise<ModuleKey[]> {
   const configured = await sql`
     SELECT s.enabled_modules,
-           c.owner_telegram_user_id::text AS owner_telegram_user_id
+           c.owner_telegram_user_id::text AS owner_telegram_user_id,
+           c.chat_type, c.bot_permissions
     FROM public.telegram_communities c
     INNER JOIN public.community_agent_settings s ON s.telegram_chat_id = c.telegram_chat_id
     WHERE c.telegram_chat_id = ${chatId}::bigint
@@ -109,14 +111,17 @@ async function getActiveModules(sql: Sql, chatId: string): Promise<ModuleKey[]> 
   const selected = (configured[0].enabled_modules ?? []).filter((key: string) =>
     ["sentinel", "poly_shield", "omini_glitch"].includes(key),
   ) as ModuleKey[];
-  if (selected.length === 0) return [];
+  const permissionSafeModules = selected.filter((key) =>
+    canRunTelegramModule(key, configured[0].chat_type, configured[0].bot_permissions),
+  );
+  if (permissionSafeModules.length === 0) return [];
 
   // Availability is global, but paid Omini Glitch access is community-specific.
   const [availableRows, entitlementRows] = await Promise.all([
     sql`
       SELECT module_key
       FROM public.agent_modules
-      WHERE is_available = true AND module_key = ANY(${selected}::text[])
+      WHERE is_available = true AND module_key = ANY(${permissionSafeModules}::text[])
     `,
     sql`
       SELECT telegram_chat_id::text AS telegram_chat_id, telegram_user_id::text AS telegram_user_id, module_key, status, starts_at, expires_at
@@ -130,7 +135,7 @@ async function getActiveModules(sql: Sql, chatId: string): Promise<ModuleKey[]> 
   return resolveActiveModules({
     communityId: chatId,
     ownerId: configured[0].owner_telegram_user_id,
-    selectedModules: selected,
+    selectedModules: permissionSafeModules,
     availableModules: availableRows.map((row: any) => row.module_key),
     entitlements: entitlementRows,
   });
