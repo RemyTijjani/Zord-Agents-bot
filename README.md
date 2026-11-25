@@ -113,6 +113,16 @@ The administrator's Communities page now has independent Sentinel, Poly-Shield, 
 - There is no test-mode or rental-bypass switch. Paid Omini Glitch access is always bound to the exact verified Telegram community and its current owner.
 - Global module availability remains off by default. Do not enable public rentals until live-group tests and the AI provider configuration are complete.
 - Module execution is gated by the bot's current Telegram permissions: Sentinel requires delete-message permission; Poly-Shield and Omini Glitch require permission to send messages (including channel post permission for channels).
+
+### Telegram administrator controls
+
+- Telegram group/channel administrators can use `/enableagent sentinel`, `/enableagent poly_shield`, `/enableagent omini_glitch` and the matching `/disableagent <module>` command.
+- `/agentsettings` shows the selected and currently active modules plus their current safety behavior.
+- The bot verifies the requesting administrator with Telegram's `getChatMember` for that single requester; it does not enumerate or store ordinary community members.
+- Enabling still requires global platform availability and the bot's module-specific permissions. Omini Glitch additionally requires an active rental for that exact community and its verified owner. Telegram administrators cannot bypass these platform or rental gates.
+- The platform administrator can still change per-community selections in the dashboard. Global module availability remains the emergency platform gate.
+- Current moderation behavior is intentionally conservative: Sentinel deletes only high-confidence scam matches; medium-risk findings are logged for review. Poly-Shield warns and flags for moderator review but does not auto-delete. No ban or member-restriction action is implemented.
+- Per-community moderation-mode overrides (for example, switching Sentinel to review-only) have not been enabled; no destructive moderation option is exposed through these commands.
 - Edited messages and channel posts are rechecked. Webhook update processing uses a five-minute processing lease to reduce duplicate concurrent work.
 - Ordinary member updates are not catalogued or stored as member profiles; `chat_member` is used only to refresh verified community ownership when a creator transition occurs.
 
