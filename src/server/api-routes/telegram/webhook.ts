@@ -1,12 +1,16 @@
 import { timingSafeEqual } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 import { processAgentMessage } from "../../../../api/_lib/agents.js";
+import { getTelegramUpdateChat, getTelegramUpdateType, isTelegramOwnershipChange, resolveBotPermissions } from "../../../../api/_lib/telegram-operations.mjs";
 
 type TelegramChat = { id: number | string; type: string; title?: string };
 type TelegramMember = {
   status: string;
   user?: { id: number | string };
   can_delete_messages?: boolean;
+  can_post_messages?: boolean;
+  can_manage_chat?: boolean;
+  can_restrict_members?: boolean;
 };
 type TelegramMessage = {
   message_id: number;
@@ -23,8 +27,15 @@ type TelegramUpdate = {
     from?: { id: number | string };
     new_chat_member: TelegramMember;
   };
+  chat_member?: {
+    chat: TelegramChat;
+    old_chat_member: TelegramMember;
+    new_chat_member: TelegramMember;
+  };
   message?: TelegramMessage;
+  edited_message?: TelegramMessage;
   channel_post?: TelegramMessage;
+  edited_channel_post?: TelegramMessage;
 };
 
 function safeEqual(left: string, right: string): boolean {
@@ -45,17 +56,6 @@ async function telegramApi<T>(token: string, method: string, body: object): Prom
     throw new Error("Telegram API request failed.");
   }
   return payload.result as T;
-}
-
-function getUpdateType(update: TelegramUpdate): string {
-  if (update.my_chat_member) return "my_chat_member";
-  if (update.message) return "message";
-  if (update.channel_post) return "channel_post";
-  return "unknown";
-}
-
-function getChat(update: TelegramUpdate): TelegramChat | undefined {
-  return update.my_chat_member?.chat ?? update.message?.chat ?? update.channel_post?.chat;
 }
 
 async function syncCommunity(
@@ -85,18 +85,13 @@ async function syncCommunity(
     }
   }
 
-  const hasDeletePermission =
-    status === "creator" || (status === "administrator" && botMember.can_delete_messages === true);
-  const communityStatus = isGone
-    ? "left"
-    : isAdmin && hasDeletePermission && ownerId
-      ? "active"
-      : "restricted";
+  const permissions = isGone ? resolveBotPermissions(chat.type, { status: "left" }) : resolveBotPermissions(chat.type, botMember);
+  const communityStatus = isGone ? "left" : isAdmin && ownerId ? "active" : "restricted";
 
   await sql`
     INSERT INTO public.telegram_communities (
       telegram_chat_id, chat_type, title, added_by_telegram_user_id,
-      owner_telegram_user_id, bot_status, ownership_verified_at,
+      owner_telegram_user_id, bot_status, ownership_verified_at, bot_permissions,
       last_seen_at, updated_at
     )
     VALUES (
@@ -104,7 +99,7 @@ async function syncCommunity(
       ${from?.id === undefined ? null : String(from.id)}::bigint,
       ${ownerId}::bigint, ${communityStatus},
       CASE WHEN ${ownerId}::bigint IS NULL THEN NULL ELSE now() END,
-      now(), now()
+      ${JSON.stringify(permissions)}::jsonb, now(), now()
     )
     ON CONFLICT (telegram_chat_id) DO UPDATE SET
       chat_type = EXCLUDED.chat_type,
@@ -112,6 +107,7 @@ async function syncCommunity(
       added_by_telegram_user_id = COALESCE(EXCLUDED.added_by_telegram_user_id, telegram_communities.added_by_telegram_user_id),
       owner_telegram_user_id = COALESCE(EXCLUDED.owner_telegram_user_id, telegram_communities.owner_telegram_user_id),
       bot_status = EXCLUDED.bot_status,
+      bot_permissions = EXCLUDED.bot_permissions,
       ownership_verified_at = CASE
         WHEN EXCLUDED.owner_telegram_user_id IS NOT NULL THEN now()
         ELSE telegram_communities.ownership_verified_at
@@ -143,6 +139,28 @@ async function syncCommunity(
   }
 }
 
+async function refreshCommunityOwner(sql: any, token: string, event: NonNullable<TelegramUpdate["chat_member"]>): Promise<void> {
+  if (!isTelegramOwnershipChange({ chat_member: event })) return;
+  try {
+    const admins = await telegramApi<Array<{ status: string; user?: { id: number | string } }>>(
+      token,
+      "getChatAdministrators",
+      { chat_id: String(event.chat.id) },
+    );
+    const creator = admins.find((member) => member.status === "creator");
+    if (creator?.user?.id === undefined) return;
+    await sql`
+      UPDATE public.telegram_communities
+      SET owner_telegram_user_id = ${String(creator.user.id)}::bigint,
+          ownership_verified_at = now(),
+          updated_at = now()
+      WHERE telegram_chat_id = ${String(event.chat.id)}::bigint
+        AND bot_status = 'active'
+    `;
+  } catch {
+    // Keep the last verified owner if Telegram cannot be queried.
+  }
+}
 export default async function handler(req: any, res: any) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   if (req.method !== "POST") {
@@ -173,9 +191,9 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: "Invalid Telegram update ID." });
   }
 
-  const chat = getChat(update);
+  const chat = getTelegramUpdateChat(update) as TelegramChat | undefined;
   const chatId = chat?.id === undefined ? null : String(chat.id);
-  const updateType = getUpdateType(update);
+  const updateType = getTelegramUpdateType(update);
 
   try {
     if (!process.env.DATABASE_URL) throw new Error("Database is not configured.");
@@ -186,17 +204,17 @@ export default async function handler(req: any, res: any) {
       )
       VALUES (
         ${String(updateId)}::bigint, ${updateType}, ${chatId}::bigint,
-        'received', 0, now()
+        'processing', 0, now()
       )
       ON CONFLICT (update_id) DO UPDATE SET
-        status = 'received',
+        status = 'processing',
         attempt_count = telegram_updates.attempt_count + 1,
         error = NULL,
         processing_started_at = now()
       WHERE telegram_updates.status = 'failed'
          OR (
-           telegram_updates.status = 'received'
-           AND telegram_updates.processing_started_at < now() - interval '2 minutes'
+           telegram_updates.status IN ('received', 'processing')
+           AND telegram_updates.processing_started_at < now() - interval '5 minutes'
          )
       RETURNING update_id
     `;
@@ -208,7 +226,10 @@ export default async function handler(req: any, res: any) {
     if (update.my_chat_member) {
       await syncCommunity(sql, token, update.my_chat_member);
     }
-    const message = update.message ?? update.channel_post;
+    if (update.chat_member) {
+      await refreshCommunityOwner(sql, token, update.chat_member);
+    }
+    const message = update.message ?? update.edited_message ?? update.channel_post ?? update.edited_channel_post;
     if (message) {
       await processAgentMessage(sql, token, message);
     }
