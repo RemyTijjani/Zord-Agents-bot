@@ -15,8 +15,12 @@ function extractUrls(text) {
 function hasCommunityImpersonation(text, profile) {
   const name = typeof profile?.community_name === "string" ? profile.community_name.trim() : "";
   if (!name) return false;
-  const escaped = name.replace(/[.*+?^\${}()|[\]\\]/g, "\\export function detectSentinelThreat(input) {");
-  return new RegExp("\\b" + escaped + "\\s+(?:official\\s+)?(?:support|admin|moderator|team)\\b", "i").test(text);
+  const normalizedText = text.toLowerCase();
+  const normalizedName = name.toLowerCase();
+  return ["support", "admin", "moderator", "team"].some((role) =>
+    normalizedText.includes(`${normalizedName} ${role}`) ||
+    normalizedText.includes(`${normalizedName} official ${role}`),
+  );
 }
 
 export function detectSentinelThreat(input, profile = null) {
