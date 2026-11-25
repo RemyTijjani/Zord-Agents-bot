@@ -194,6 +194,23 @@ async function updateProfileFromOwner(sql: Sql, chatId: string, userId: string, 
   return true;
 }
 
+async function runSentinel(sql: Sql, token: string, message: TelegramMessage, text: string): Promise<void> {
+  const finding = detectSentinelThreat(text);
+  if (!finding) return;
+  const chatId = String(message.chat.id);
+  const userId = message.from?.id === undefined ? null : String(message.from.id);
+  await logAction(sql, chatId, userId, "sentinel", "suspicious_message_detected", finding.severity, text, { reason: finding.reason });
+  if (finding.severity === "high") {
+    try {
+      await telegramApi(token, "deleteMessage", { chat_id: chatId, message_id: message.message_id });
+      await logAction(sql, chatId, userId, "sentinel", "message_deleted", "high", text, { reason: finding.reason });
+      await send(token, chatId, "🛡️ Sentinel removed a message that matched a high-confidence scam pattern.");
+    } catch {
+      // Detection remains in the audit log if Telegram deletion is unavailable.
+    }
+  }
+}
+
 async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, text: string, profile: CommunityProfile): Promise<void> {
   let flagged = detectPolyShieldToxicity(text);
   let severity: "low" | "medium" | "high" = flagged ? "medium" : "low";
