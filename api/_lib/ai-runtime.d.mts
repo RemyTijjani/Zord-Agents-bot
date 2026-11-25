@@ -10,13 +10,14 @@ export interface PolyShieldFinding {
   reason: string;
 }
 
-export function getAiConfig(env?: Record<string, string | undefined>): AiConfig | null;
+export function getAiConfig(env?: Record<string, string | undefined>, agent?: string): AiConfig | null;
 export function completeChat(
   system: string,
   user: string,
   maxTokens?: number,
   env?: Record<string, string | undefined>,
   fetchImpl?: typeof fetch,
+  agent?: "default" | "sentinel" | "poly_shield" | "omini_glitch",
 ): Promise<string | null>;
 export function parsePolyShieldClassification(raw: string | null): PolyShieldFinding | null;
 export function mergePolyShieldFinding(
