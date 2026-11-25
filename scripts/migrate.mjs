@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { neon } from "@neondatabase/serverless";
+import { splitSqlStatements } from "./split-sql.mjs";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required to run Neon migrations.");
@@ -26,6 +27,7 @@ for (const filename of files) {
   const existing = await sql`
     SELECT checksum FROM public.schema_migrations WHERE version = ${version} LIMIT 1
   `;
+
   if (existing[0]) {
     if (existing[0].checksum !== checksum) {
       throw new Error(`Migration checksum changed after application: ${version}`);
@@ -33,11 +35,14 @@ for (const filename of files) {
     continue;
   }
 
-  const statements = contents.split(";").map((statement) => statement.trim()).filter(Boolean);
-  for (const statement of statements) await sql.query(statement);
-  await sql`
-    INSERT INTO public.schema_migrations (version, checksum)
-    VALUES (${version}, ${checksum})
-  `;
+  const statements = splitSqlStatements(contents);
+  const transaction = [
+    ...statements.map((statement) => sql.query(statement)),
+    sql`
+      INSERT INTO public.schema_migrations (version, checksum)
+      VALUES (${version}, ${checksum})
+    `,
+  ];
+  await sql.transaction(transaction);
   process.stdout.write(`Applied ${version}\n`);
 }
