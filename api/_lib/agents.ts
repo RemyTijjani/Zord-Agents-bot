@@ -123,15 +123,17 @@ async function getActiveModules(sql: Sql, chatId: string): Promise<ModuleKey[]> 
       WHERE is_available = true AND module_key = ANY(${selected}::text[])
     `,
     sql`
-      SELECT telegram_chat_id::text AS telegram_chat_id, module_key, status, starts_at, expires_at
+      SELECT telegram_chat_id::text AS telegram_chat_id, telegram_user_id::text AS telegram_user_id, module_key, status, starts_at, expires_at
       FROM public.rental_entitlements
       WHERE telegram_chat_id = ${chatId}::bigint
+        AND telegram_user_id = ${configured[0].owner_telegram_user_id}::bigint
         AND module_key = 'omini_glitch'
         AND status = 'active'
     `,
   ]);
   return resolveActiveModules({
     communityId: chatId,
+    ownerId: configured[0].owner_telegram_user_id,
     selectedModules: selected,
     availableModules: availableRows.map((row: any) => row.module_key),
     entitlements: entitlementRows,
