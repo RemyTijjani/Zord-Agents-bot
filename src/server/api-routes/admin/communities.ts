@@ -18,6 +18,7 @@ export default async function handler(req: any, res: any) {
         c.title,
         c.chat_type,
         c.bot_status AS status,
+        c.bot_permissions,
         c.first_seen_at AS added_at,
         c.last_seen_at,
         COALESCE(s.enabled_modules, ARRAY[]::text[]) AS enabled_modules
