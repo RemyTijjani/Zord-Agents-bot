@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { resolveActiveModules } from "./entitlements.mjs";
 import { buildCommunityProfileContext, isVerifiedCommunityOwner } from "./community-intelligence.mjs";
 import { detectSentinelThreat } from "./sentinel.mjs";
+import { detectPolyShieldToxicity } from "./poly-shield.mjs";
 
 type Sql = any;
 type TelegramMessage = {
@@ -193,36 +194,8 @@ async function updateProfileFromOwner(sql: Sql, chatId: string, userId: string, 
   return true;
 }
 
-const toxicityTerms = [
-  "kill yourself", "go die", "you are worthless",
-  "vete a morir", "muérete", "ferme ta gueule", "va te faire",
-  "اذهب للموت", "سأقتلك",
-];
-
-function polyShieldFinding(text: string): boolean {
-  const normalized = text.toLocaleLowerCase();
-  return toxicityTerms.some((term) => normalized.includes(term));
-}
-
-async function runSentinel(sql: Sql, token: string, message: TelegramMessage, text: string): Promise<void> {
-  const finding = detectSentinelThreat(text);
-  if (!finding) return;
-  const chatId = String(message.chat.id);
-  const userId = message.from?.id === undefined ? null : String(message.from.id);
-  await logAction(sql, chatId, userId, "sentinel", "suspicious_message_detected", finding.severity, text, { reason: finding.reason });
-  if (finding.severity === "high") {
-    try {
-      await telegramApi(token, "deleteMessage", { chat_id: chatId, message_id: message.message_id });
-      await logAction(sql, chatId, userId, "sentinel", "message_deleted", "high", text, { reason: finding.reason });
-      await send(token, chatId, "🛡️ Sentinel removed a message that matched a high-confidence scam pattern.");
-    } catch {
-      // The bot may not have deletion rights; the detection remains in the audit log.
-    }
-  }
-}
-
 async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, text: string, profile: CommunityProfile): Promise<void> {
-  let flagged = polyShieldFinding(text);
+  let flagged = detectPolyShieldToxicity(text);
   let severity: "low" | "medium" | "high" = flagged ? "medium" : "low";
   let reason = "keyword_fallback";
   const classification = await aiCompletion(
