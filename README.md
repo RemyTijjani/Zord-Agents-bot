@@ -76,13 +76,13 @@ Sign the exact compact JSON body sent over HTTP; preserve property order between
 ### Sync a rental
 
 Send a signed JSON body with `action: "sync"` and these fields:
-`external_entitlement_id`, `telegram_user_id`, `module_key` (`sentinel`, `poly_shield`, or `omini_glitch`), `status` (`pending`, `active`, `suspended`, `revoked`, or `expired`), optional `starts_at`, optional `expires_at`, and optional object `entitlement_data`.
+`external_entitlement_id`, `telegram_user_id`, `module_key` (`omini_glitch` only), `status` (`pending`, `active`, `suspended`, `revoked`, or `expired`), optional `telegram_chat_id`, optional `starts_at`, optional `expires_at`, and optional object `entitlement_data`. Pending orders may omit `telegram_chat_id` while the customer is adding the bot. An `active` rental must include a verified `telegram_chat_id` owned by the same Telegram user. Each external entitlement ID is permanently bound to one community.
 
 Only the trusted marketplace backend should send `status: "active"`, and only after it has verified the rental/payment. Repeated syncs update the same record using `external_entitlement_id`.
 
 ### Check a community
 
-Send a signed body `{"action":"check","telegram_chat_id":"-100..."}`. The bot resolves the community owner from its own verified Neon record; callers cannot choose the owner ID. It returns only unexpired active rentals whose module is also globally available. An unverified/restricted community receives no active modules.
+Send a signed body `{"action":"check","telegram_chat_id":"-100..."}`. The bot resolves the community owner from its own verified Neon record; callers cannot choose the owner ID. Free Sentinel and Poly-Shield availability is independent. Omini Glitch is returned only when an unexpired active entitlement is bound to that exact Telegram community and owner. An unverified/restricted community receives no active modules.
 
 The three modules remain globally disabled until their execution handlers, moderation permissions, and operational safeguards have been implemented and tested. An active rental alone does not switch a module on.
 
@@ -114,8 +114,7 @@ The administrator's Communities page now has independent Sentinel, Poly-Shield, 
 - Global module availability remains off by default. Do not enable public rentals until live-group tests and the AI provider configuration are complete.
 - The Telegram webhook registration now subscribes to `my_chat_member`, `message`, and `channel_post`.
 
-Apply the matching SQL migration to the bot's Neon branch before testing the new controls:
-`supabase/migrations/20261117150000_official_agent_runtime.sql`.
+The Neon schema is managed only through `db/migrations/`. Run `npm run migrate` with the bot's `DATABASE_URL` to apply pending, checksum-verified migrations. Do not use Supabase CLI or Supabase migrations for this project.
 
 
 ## Community Intelligence
@@ -130,4 +129,16 @@ Every Telegram group or channel has an isolated `community_intelligence_profiles
 - Sentinel's detection can use community-specific impersonation context. Normal Telegram links are not treated as shortened scam links.
 - The profile is stored by Telegram chat ID, not globally. The runtime does not treat arbitrary member messages as verified community facts.
 
-Apply `supabase/migrations/20261117170000_community_intelligence.sql` to the bot's Neon development branch before running this version.
+Community Intelligence is part of the existing Neon schema and is tracked by the Neon adoption baseline.
+
+
+## Neon-only database workflow
+
+Neon is the sole database for this repository. The previous Supabase project was not migrated and is not used by this bot. The existing Neon database is adopted in place; no existing tables or records are reset.
+
+- SQL migrations live in `db/migrations/` and are applied in filename order.
+- `public.schema_migrations` records each applied migration and its SHA-256 checksum.
+- Run `npm run migrate` with `DATABASE_URL` set to the bot's Neon database.
+- Applied migration files are immutable. Add a new numbered file for every schema change.
+- The adoption baseline records the existing Neon schema without recreating it. The first forward migration adds community scoping to rental entitlements.
+- The CI workflow runs `npm ci`, `npm test`, and `npm run build` on pull requests and main pushes.
