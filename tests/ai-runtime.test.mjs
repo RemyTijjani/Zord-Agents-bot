@@ -11,10 +11,10 @@ test("AI configuration requires credentials, model and a secure HTTPS endpoint",
   assert.equal(getAiConfig({ ZORD_AI_API_KEY: "key", ZORD_AI_MODEL: "model", ZORD_AI_API_URL: "http://example.test" }), null);
   assert.equal(getAiConfig({ ZORD_AI_API_KEY: "key", ZORD_AI_MODEL: "model", ZORD_AI_API_URL: "https://user:pass@example.test/v1" }), null);
   assert.equal(getAiConfig({ ZORD_AI_API_KEY: "key", ZORD_AI_MODEL: "model" }).endpoint, "https://api.openai.com/v1/chat/completions");
-  const geminiEnv = { ZORD_AI_API_KEY: "key", ZORD_AI_MODEL: "gemini-2.5-flash", ZORD_AI_API_URL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" };
-  assert.equal(getAiConfig(geminiEnv, "sentinel").model, "gemini-2.5-flash-lite");
-  assert.equal(getAiConfig(geminiEnv, "poly_shield").model, "gemini-2.5-flash");
-  assert.equal(getAiConfig(geminiEnv, "omini_glitch").model, "gemini-2.5-pro");
+  const geminiEnv = { ZORD_AI_API_KEY: "key", ZORD_AI_MODEL: "gemini-3.8-flash", ZORD_AI_API_URL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" };
+  assert.equal(getAiConfig(geminiEnv, "sentinel").model, "gemini-3.5-flash-lite");
+  assert.equal(getAiConfig(geminiEnv, "poly_shield").model, "gemini-3.8-flash");
+  assert.equal(getAiConfig(geminiEnv, "omini_glitch").model, "gemini-3.1-pro-preview");
   assert.equal(getAiConfig({ ...geminiEnv, ZORD_AI_MODEL_POLY_SHIELD: "custom-model" }, "poly_shield").model, "custom-model");
   assert.equal(getAiConfig({ ZORD_AI_API_KEY: " ", ZORD_AI_MODEL: "model" }), null);
 });
