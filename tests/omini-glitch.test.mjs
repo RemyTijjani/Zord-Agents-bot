@@ -17,6 +17,7 @@ test("successful Omini Glitch content records the correct action", () => {
     response: "A community-specific meme",
   });
   assert.equal(resolveOminiGeneration("glitch", "Draft post").action, "community_content_created");
+  assert.equal(resolveOminiGeneration("glitch", "x".repeat(900)).response.length, 700);
 });
 
 test("weekly report handles an empty activity set", () => {
