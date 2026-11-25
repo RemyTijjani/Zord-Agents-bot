@@ -30,14 +30,10 @@ const routes: Record<string, (req: any, res: any) => unknown> = {
 
 export default async function handler(req: any, res: any) {
   const rawPath = req.query?.path;
-  const route = Array.isArray(rawPath)
-    ? "/api/" + rawPath.join("/")
-    : typeof rawPath === "string"
-      ? "/api/" + rawPath
-      : new URL(req.url || "/", "https://zord.invalid").pathname;
+  const suffix = Array.isArray(rawPath) ? rawPath.join("/") : typeof rawPath === "string" ? rawPath : "";
+  const route = suffix ? (suffix.startsWith("/api/") ? suffix : "/api/" + suffix.replace(/^\/+/, "")) :
+    new URL(req.url || "/", "https://zord.invalid").pathname;
   const selected = routes[route];
-  if (!selected) {
-    return res.status(404).json({ error: "API route not found." });
-  }
+  if (!selected) return res.status(404).json({ error: "API route not found." });
   return selected(req, res);
 }
