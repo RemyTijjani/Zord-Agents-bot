@@ -1,4 +1,5 @@
 import { getDatabase, isActiveAdmin, isSameOrigin, readSession } from "../../../../api/_lib/auth.js";
+import { normalizeCommunityProfile } from "../../../../api/_lib/community-intelligence.mjs";
 
 export default async function handler(req: any, res: any) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -28,18 +29,15 @@ export default async function handler(req: any, res: any) {
       if (typeof chatId !== "string" || !/^-?\d{5,20}$/.test(chatId)) return res.status(400).json({ error: "Invalid Telegram chat ID." });
       const community = await sql`SELECT title, bot_status FROM public.telegram_communities WHERE telegram_chat_id = ${chatId}::bigint LIMIT 1`;
       if (!community[0] || community[0].bot_status !== "active") return res.status(409).json({ error: "Only verified active communities can update their profile." });
-      const clean = (value: unknown, max = 1200) => typeof value === "string" ? value.trim().slice(0, max) : "";
-      const topics = Array.isArray(body.focus_topics)
-        ? body.focus_topics.filter((v: unknown) => typeof v === "string").map((v: string) => v.trim().slice(0, 80)).filter(Boolean).slice(0, 12)
-        : [];
+      const profile = normalizeCommunityProfile(body, community[0].title);
       const rows = await sql`
         INSERT INTO public.community_intelligence_profiles
           (telegram_chat_id, community_name, description, topic, audience, focus_topics, rules, tone, content_preferences, profile_source, updated_at)
         VALUES (
-          ${chatId}::bigint, ${clean(body.community_name || community[0].title, 120)},
-          ${clean(body.description)}, ${clean(body.topic)}, ${clean(body.audience)},
-          ${topics}::text[], ${clean(body.rules)}, ${clean(body.tone, 160)},
-          ${clean(body.content_preferences)}, 'admin_dashboard', now()
+          ${chatId}::bigint, ${profile.community_name},
+          ${profile.description}, ${profile.topic}, ${profile.audience},
+          ${profile.focus_topics}::text[], ${profile.rules}, ${profile.tone},
+          ${profile.content_preferences}, 'admin_dashboard', now()
         )
         ON CONFLICT (telegram_chat_id) DO UPDATE SET
           community_name = EXCLUDED.community_name, description = EXCLUDED.description,
@@ -51,7 +49,7 @@ export default async function handler(req: any, res: any) {
       await sql`
         INSERT INTO public.audit_logs (actor_telegram_user_id, action, entity_type, entity_id, details)
         VALUES (${user.id}::bigint, 'community_intelligence_profile_updated', 'telegram_community',
-          ${chatId}, ${JSON.stringify({ topic: clean(body.topic), focus_topics: topics })}::jsonb)
+          ${chatId}, ${JSON.stringify({ topic: profile.topic, focus_topics: profile.focus_topics })}::jsonb)
       `;
       return res.status(200).json({ ok: true, profile: rows[0] });
     }
