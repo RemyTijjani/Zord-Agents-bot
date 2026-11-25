@@ -14,6 +14,12 @@ test("preserves semicolons inside single-quoted and escaped strings", () => {
   ), ["INSERT INTO notes(value) VALUES ('one; two'), (E'three\\; four')", "SELECT 5"]);
 });
 
+test("does not split at an escaped quote in an E-string", () => {
+  assert.deepEqual(splitSqlStatements(
+    "SELECT E'can\\'t; split'; SELECT 2;"
+  ), ["SELECT E'can\\'t; split'", "SELECT 2"]);
+});
+
 test("preserves semicolons inside quoted identifiers and block comments", () => {
   assert.deepEqual(splitSqlStatements(
     'SELECT "column;name" /* outer; /* nested; */ done */ FROM items;'
