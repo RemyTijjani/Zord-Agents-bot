@@ -195,7 +195,7 @@ export default function CommunitiesPage() {
                   {profileChatId === row.id && profiles[row.id] && (
                     <div className="agent-settings">
                       <h3>Community Intelligence profile</h3>
-                      <p className="muted">This profile is private to this Telegram community and powers all three agents.</p>
+                      <p className="muted">This profile is private to this Telegram community and powers all three agents. Describe the community purpose, industry and audience only — never list member names or upload a member directory. The agents do not need a list of the group’s members.</p>
                       {([
                         ["community_name", "Community name"],
                         ["description", "What is this community about?"],
