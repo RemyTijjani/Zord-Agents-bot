@@ -330,7 +330,7 @@ async function changeCommunityModule(sql: Sql, token: string, message: TelegramM
   `;
   await sql`
     INSERT INTO public.audit_logs (actor_telegram_user_id, action, entity_type, entity_id, details)
-    VALUES (${userId}::bigint, ${enabled ? "community_agent_enabled" : "community_agent_disabled"}, "telegram_community", ${chatId}, ${JSON.stringify({ module_key: moduleKey })}::jsonb)
+    VALUES (${userId}::bigint, ${enabled ? "community_agent_enabled" : "community_agent_disabled"}, ${"telegram_community"}, ${chatId}, ${JSON.stringify({ module_key: moduleKey })}::jsonb)
   `;
   return (enabled ? "Enabled " : "Disabled ") + moduleKey + " for this community.";
 }
