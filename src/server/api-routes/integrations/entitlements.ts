@@ -65,8 +65,8 @@ export default async function handler(req: any, res: any) {
       if (!validTelegramId(telegramUserId)) {
         return res.status(400).json({ error: "Invalid Telegram user ID." });
       }
-      if (!["sentinel", "poly_shield", "omini_glitch"].includes(String(moduleKey))) {
-        return res.status(400).json({ error: "Invalid module key." });
+      if (moduleKey !== "omini_glitch") {
+        return res.status(400).json({ error: "Only Omini Glitch supports paid rental entitlements." });
       }
       if (!["pending", "active", "suspended", "revoked", "expired"].includes(String(status))) {
         return res.status(400).json({ error: "Invalid entitlement status." });
@@ -137,15 +137,26 @@ export default async function handler(req: any, res: any) {
       }
 
       const entitlements = await sql`
-        SELECT e.module_key, m.display_name
-        FROM public.rental_entitlements e
-        INNER JOIN public.agent_modules m ON m.module_key = e.module_key
-        WHERE e.telegram_user_id = ${community.owner_telegram_user_id}::bigint
-          AND e.status = 'active'
-          AND (e.starts_at IS NULL OR e.starts_at <= now())
-          AND (e.expires_at IS NULL OR e.expires_at > now())
-          AND m.is_available = true
-        ORDER BY e.module_key
+        SELECT m.module_key, m.display_name,
+               (m.module_key IN ('sentinel', 'poly_shield')) AS is_free
+        FROM public.agent_modules m
+        WHERE m.is_available = true
+          AND (
+            m.module_key IN ('sentinel', 'poly_shield')
+            OR (
+              m.module_key = 'omini_glitch'
+              AND EXISTS (
+                SELECT 1
+                FROM public.rental_entitlements e
+                WHERE e.telegram_user_id = ${community.owner_telegram_user_id}::bigint
+                  AND e.module_key = 'omini_glitch'
+                  AND e.status = 'active'
+                  AND (e.starts_at IS NULL OR e.starts_at <= now())
+                  AND (e.expires_at IS NULL OR e.expires_at > now())
+              )
+            )
+          )
+        ORDER BY m.module_key
       `;
       return res.status(200).json({
         ok: true,
