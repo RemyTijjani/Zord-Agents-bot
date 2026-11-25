@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { resolveActiveModules } from "./entitlements.mjs";
 import { buildCommunityProfileContext, isVerifiedCommunityOwner } from "./community-intelligence.mjs";
+import { detectSentinelThreat } from "./sentinel.mjs";
 
 type Sql = any;
 type TelegramMessage = {
@@ -192,26 +193,6 @@ async function updateProfileFromOwner(sql: Sql, chatId: string, userId: string, 
   return true;
 }
 
-const suspiciousHosts = new Set([
-  "bit.ly", "tinyurl.com", "cutt.ly", "is.gd", "rb.gy", "shorturl.at",
-]);
-
-function sentinelFinding(text: string): { reason: string; severity: "medium" | "high" } | null {
-  const urls = text.match(/https?:\/\/[^\s<>()]+/gi) ?? [];
-  const scamLanguage = /\b(free crypto|claim your reward|double your money|wallet connect|seed phrase|recovery phrase|verify your wallet|send .* to receive|guaranteed profit|airdrop claim)\b/i.test(text);
-  if (urls.length >= 4) return { reason: "multiple_links", severity: "medium" };
-  if (urls.length > 0 && scamLanguage) return { reason: "scam_language_with_link", severity: "high" };
-  for (const raw of urls) {
-    try {
-      const host = new URL(raw).hostname.toLowerCase().replace(/^www\./, "");
-      if (suspiciousHosts.has(host) && scamLanguage) return { reason: "shortened_scam_link", severity: "high" };
-    } catch {
-      return { reason: "malformed_link", severity: "medium" };
-    }
-  }
-  return null;
-}
-
 const toxicityTerms = [
   "kill yourself", "go die", "you are worthless",
   "vete a morir", "muérete", "ferme ta gueule", "va te faire",
@@ -223,9 +204,8 @@ function polyShieldFinding(text: string): boolean {
   return toxicityTerms.some((term) => normalized.includes(term));
 }
 
-async function runSentinel(sql: Sql, token: string, message: TelegramMessage, text: string, profile: CommunityProfile): Promise<void> {
-  const contextualTerms = [profile.topic, ...profile.focus_topics].filter(Boolean).join(" ");
-  const finding = sentinelFinding(text) ?? (contextualTerms && /\b(support|customer care|admin|moderator|official)\b/i.test(text) && /\b(dm me|contact me|message me|send funds|send crypto|seed phrase|verification code)\b/i.test(text) ? { reason: "community_impersonation_pattern", severity: "high" as const } : null);
+async function runSentinel(sql: Sql, token: string, message: TelegramMessage, text: string): Promise<void> {
+  const finding = detectSentinelThreat(text);
   if (!finding) return;
   const chatId = String(message.chat.id);
   const userId = message.from?.id === undefined ? null : String(message.from.id);
@@ -321,9 +301,18 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
         ? modules.map((key) => key === "sentinel" ? "Sentinel" : key === "poly_shield" ? "Poly-Shield" : "Omini Glitch").join(", ")
         : "No agent modules are currently active for this community.";
       await send(token, chatId,
-        `🤖 ZORD Personal Bot\n\nAvailable commands:\n/help — show commands\n/agents — show active agents\n/status — check this community\n/ominireport — Omini Glitch weekly report\n/glitch <idea> — draft a community post\n/meme <topic> — create a text meme\n/ask <question> — Poly-Shield multilingual Q&A\n\nActive agents: ${active}`,
+        `🤖 ZORD Personal Bot\n\nAvailable commands:\n/help — show commands\n/agents — show active agents\n/status — check this community\n/faq — Sentinel community FAQ\n/rules — show community rules\n/about — show community information\n/communityprofile — view intelligence settings\n/ominireport — Omini Glitch weekly report\n/glitch <idea> — draft a community post\n/meme <topic> — create a text meme\n/ask <question> — Poly-Shield multilingual Q&A\n\nActive agents: ${active}`,
         message.message_id,
       );
+      return;
+    }
+    if (["faq", "rules", "about"].includes(parsed.name) && modules.includes("sentinel")) {
+      const answers = parsed.name === "rules"
+        ? `📌 Community rules\\n\\n${profile.rules || "No community rules have been configured yet. Ask the verified owner to add them."}`
+        : parsed.name === "about"
+          ? `ℹ️ About this community\\n\\n${profile.description || "A community description has not been configured yet."}\\n\\nMain topic: ${profile.topic || "Not set"}\\nAudience: ${profile.audience || "Not set"}`
+          : `🛡️ Sentinel — Community FAQ\\n\\nWhat is this group about?\\n${profile.description || profile.topic || "The group owner has not added a description yet."}\\n\\nWho is it for?\\n${profile.audience || "Not specified yet."}\\n\\nWhat topics belong here?\\n${(profile.focus_topics ?? []).join(", ") || profile.topic || "Not specified yet."}\\n\\nWhat rules should I follow?\\n${profile.rules || "Keep discussion respectful, safe and relevant."}`;
+      await send(token, chatId, answers, message.message_id);
       return;
     }
     if (parsed.name === "communityprofile") {
@@ -362,7 +351,7 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
     }
   }
 
-  if (modules.includes("sentinel")) await runSentinel(sql, token, message, text, profile);
+  if (modules.includes("sentinel")) await runSentinel(sql, token, message, text);
   if (modules.includes("poly_shield")) await runPolyShield(sql, token, message, text, profile);
   if (modules.includes("omini_glitch")) await runOminiGlitch(sql, token, message, text, profile);
 }
