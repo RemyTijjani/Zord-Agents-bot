@@ -1,4 +1,5 @@
 import { getDatabase, isActiveAdmin, isSameOrigin, readSession } from "../../../../api/_lib/auth.js";
+import { canRunTelegramModule } from "../../../../api/_lib/telegram-operations.mjs";
 
 const allowed = new Set(["sentinel", "poly_shield", "omini_glitch"]);
 
@@ -35,13 +36,18 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: "Invalid agent settings." });
       }
       const community = await sql`
-        SELECT bot_status FROM public.telegram_communities
+        SELECT bot_status, chat_type, bot_permissions FROM public.telegram_communities
         WHERE telegram_chat_id = ${chatId}::bigint LIMIT 1
       `;
       if (!community[0] || community[0].bot_status !== "active") {
         return res.status(409).json({ error: "Only verified active communities can enable agents." });
       }
       const uniqueModules = [...new Set(modules)] as string[];
+      const missingPermissions = uniqueModules.filter((module) => !canRunTelegramModule(module, community[0].chat_type, community[0].bot_permissions));
+      if (missingPermissions.length) {
+        const required = missingPermissions.map((module) => module === "sentinel" ? "Sentinel needs delete-message permission" : module + " needs permission to send messages").join("; ");
+        return res.status(409).json({ error: "The bot is missing required Telegram permissions: " + required + "." });
+      }
       const rows = await sql`
         INSERT INTO public.community_agent_settings
           (telegram_chat_id, enabled_modules, updated_by_telegram_user_id, updated_at)
