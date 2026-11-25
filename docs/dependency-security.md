@@ -10,3 +10,5 @@ Advisories:
 - https://github.com/vitejs/vite/security/advisories/GHSA-p4f5-76q4-ffq7
 - https://github.com/advisories/GHSA-wrjc-x8rr-h8h6
 - https://github.com/advisories/GHSA-337j-9hxr-rhxg
+
+The generated lockfile is committed only after CI confirms installation, tests, the dependency audit, and the production build.
