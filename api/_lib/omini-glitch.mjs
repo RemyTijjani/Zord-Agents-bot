@@ -13,7 +13,7 @@ export function resolveOminiGeneration(command, output) {
   return {
     action: command === "meme" ? "meme_created" : "community_content_created",
     severity: "info",
-    response: output.trim().slice(0, 3500),
+    response: output.trim().slice(0, 700),
   };
 }
 
