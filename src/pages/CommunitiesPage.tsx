@@ -10,6 +10,7 @@ type CommunityRow = {
   added_at: string;
   last_seen_at: string | null;
   enabled_modules: ModuleKey[];
+  bot_permissions?: { is_admin?: boolean; can_delete_messages?: boolean; can_post_messages?: boolean; can_send_messages?: boolean };
 };
 
 type IntelligenceProfile = { community_name: string; description: string; topic: string; audience: string; focus_topics: string[]; rules: string; tone: string; content_preferences: string };
@@ -17,6 +18,11 @@ type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; rows: CommunityRow[] };
+
+function hasModulePermission(row: CommunityRow, module: ModuleKey): boolean {
+  if (module === "sentinel") return row.bot_permissions?.can_delete_messages === true;
+  return row.bot_permissions?.can_send_messages === true;
+}
 
 const moduleOptions: Array<{ key: ModuleKey; name: string; detail: string }> = [
   { key: "sentinel", name: "Sentinel", detail: "Spam and scam protection" },
@@ -167,7 +173,7 @@ export default function CommunitiesPage() {
                       <input
                         type="checkbox"
                         checked={row.enabled_modules.includes(module.key)}
-                        disabled={row.status !== "active" || savingId === row.id}
+                        disabled={row.status !== "active" || savingId === row.id || (!row.enabled_modules.includes(module.key) && !hasModulePermission(row, module.key))}
                         onChange={(event) => toggleModule(row.id, module.key, event.target.checked)}
                       />
                       <span>
@@ -176,6 +182,9 @@ export default function CommunitiesPage() {
                       </span>
                     </label>
                   ))}
+                  {row.status === "active" && (!hasModulePermission(row, "sentinel") || !hasModulePermission(row, "poly_shield")) && (
+                    <p className="muted">The bot Telegram permission snapshot is incomplete. Sentinel needs delete-message permission; Poly-Shield and Omini Glitch need permission to send messages. Re-add or promote the bot to refresh its permissions.</p>
+                  )}
                   <button
                     type="button"
                     className="btn btn-primary"
