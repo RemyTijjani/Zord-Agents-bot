@@ -101,9 +101,9 @@ Set these server-side variables in the dedicated bot project when enabling AI-po
 
 - `ZORD_AI_API_KEY` — API key for an OpenAI-compatible chat-completions provider.
 - `ZORD_AI_MODEL` — model identifier supported by that provider.
-- `ZORD_AI_API_URL` — optional full chat-completions URL; defaults to `https://api.openai.com/v1/chat/completions`.
+- `ZORD_AI_API_URL` — optional full chat-completions URL; defaults to `https://api.openai.com/v1/chat/completions`. Custom endpoints must use HTTPS.
 
-The AI key is never exposed to browser code. Without these values, the deterministic Sentinel checks and local Poly-Shield fallback remain available; AI Q&A/content generation returns a configuration message.
+The AI key is never exposed to browser code. Without these values, the deterministic Sentinel checks and local Poly-Shield fallback remain available; AI Q&A/content generation returns a configuration message. AI calls are bounded per Telegram actor and community: Poly-Shield allows up to 8 AI requests per minute, and Omini Glitch allows up to 5 per minute. The database stores only the active usage window and count, not message text. Deterministic Poly-Shield findings cannot be cleared by an AI false negative.
 
 ### Per-community controls and test safety
 
