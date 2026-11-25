@@ -4,6 +4,7 @@ export function splitSqlStatements(source) {
   let state = "normal";
   let blockDepth = 0;
   let dollarTag = "";
+  let escapeString = false;
 
   const push = () => {
     const value = statement.trim();
@@ -38,14 +39,15 @@ export function splitSqlStatements(source) {
 
     if (state === "single-quote") {
       statement += char;
-      if (char === "'" && next === "'") {
+      if (escapeString && char === "\\" && next !== undefined) {
         statement += next;
         i += 1;
-      } else if (char === "'" && !isEscapeString(source, i)) {
+      } else if (char === "'" && next === "'") {
+        statement += next;
+        i += 1;
+      } else if (char === "'") {
         state = "normal";
-      } else if (char === "\\" && isEscapeString(source, i) && next !== undefined) {
-        statement += next;
-        i += 1;
+        escapeString = false;
       }
       continue;
     }
@@ -82,6 +84,11 @@ export function splitSqlStatements(source) {
       state = "block-comment";
       blockDepth = 1;
     } else if (char === "'") {
+      let prefixIndex = i - 1;
+      while (prefixIndex >= 0 && /[A-Za-z]/.test(source[prefixIndex])) prefixIndex -= 1;
+      const prefix = source.slice(prefixIndex + 1, i);
+      escapeString = prefix.length === 1 && /[eE]/.test(prefix)
+        && (prefixIndex < 0 || !/[A-Za-z0-9_$]/.test(source[prefixIndex]));
       statement += char;
       state = "single-quote";
     } else if (char === '"') {
@@ -110,12 +117,4 @@ export function splitSqlStatements(source) {
 
   push();
   return statements;
-}
-
-function isEscapeString(source, quoteIndex) {
-  let index = quoteIndex - 1;
-  while (index >= 0 && /[A-Za-z]/.test(source[index])) index -= 1;
-  const prefix = source.slice(index + 1, quoteIndex);
-  if (prefix.length !== 1 || !/[eE]/.test(prefix)) return false;
-  return index < 0 || !/[A-Za-z0-9_$]/.test(source[index]);
 }
