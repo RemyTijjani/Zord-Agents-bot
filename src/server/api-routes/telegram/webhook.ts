@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 import { processAgentMessage } from "../../../../api/_lib/agents.js";
 import { getTelegramUpdateChat, getTelegramUpdateType, isTelegramOwnershipChange, resolveBotPermissions } from "../../../../api/_lib/telegram-operations.mjs";
@@ -195,33 +195,37 @@ export default async function handler(req: any, res: any) {
   const chatId = chat?.id === undefined ? null : String(chat.id);
   const updateType = getTelegramUpdateType(update);
 
+  const claimToken = randomUUID();
+  let claimAcquired = false;
   try {
     if (!process.env.DATABASE_URL) throw new Error("Database is not configured.");
     const sql = neon(process.env.DATABASE_URL);
     const claimed = await sql`
       INSERT INTO public.telegram_updates (
-        update_id, update_type, chat_id, status, attempt_count, processing_started_at
+        update_id, update_type, chat_id, status, attempt_count, processing_started_at, processing_token
       )
       VALUES (
         ${String(updateId)}::bigint, ${updateType}, ${chatId}::bigint,
-        'processing', 0, now()
+        'processing', 0, now(), ${claimToken}
       )
       ON CONFLICT (update_id) DO UPDATE SET
         status = 'processing',
         attempt_count = telegram_updates.attempt_count + 1,
         error = NULL,
-        processing_started_at = now()
+        processing_started_at = now(),
+        processing_token = EXCLUDED.processing_token
       WHERE telegram_updates.status = 'failed'
          OR (
            telegram_updates.status IN ('received', 'processing')
            AND telegram_updates.processing_started_at < now() - interval '5 minutes'
          )
-      RETURNING update_id
+      RETURNING update_id, processing_token
     `;
 
     if (claimed.length === 0) {
       return res.status(200).json({ ok: true, duplicate: true });
     }
+    claimAcquired = true;
 
     if (update.my_chat_member) {
       await syncCommunity(sql, token, update.my_chat_member);
@@ -238,16 +242,18 @@ export default async function handler(req: any, res: any) {
       UPDATE public.telegram_updates
       SET status = 'processed', processed_at = now(), error = NULL
       WHERE update_id = ${String(updateId)}::bigint
+        AND processing_token = ${claimToken}
     `;
     return res.status(200).json({ ok: true });
   } catch {
     try {
-      if (process.env.DATABASE_URL) {
+      if (process.env.DATABASE_URL && claimAcquired) {
         const sql = neon(process.env.DATABASE_URL);
         await sql`
           UPDATE public.telegram_updates
           SET status = 'failed', error = 'webhook_processing_failed'
           WHERE update_id = ${String(updateId)}::bigint
+            AND processing_token = ${claimToken}
         `;
       }
     } catch {
