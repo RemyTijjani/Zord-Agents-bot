@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { resolveActiveModules } from "./entitlements.mjs";
 
 type Sql = any;
 type TelegramMessage = {
@@ -114,30 +115,27 @@ async function getActiveModules(sql: Sql, chatId: string): Promise<ModuleKey[]> 
     return selected;
   }
 
-  // Sentinel and Poly-Shield are free. Only Omini Glitch requires a paid rental.
-  const rows = await sql`
-    SELECT m.module_key
-    FROM public.agent_modules m
-    WHERE m.is_available = true
-      AND m.module_key = ANY(${selected}::text[])
-      AND (
-        m.module_key IN ('sentinel', 'poly_shield')
-        OR (
-          m.module_key = 'omini_glitch'
-          AND EXISTS (
-            SELECT 1
-            FROM public.rental_entitlements e
-            WHERE e.telegram_user_id = ${configured[0].owner_telegram_user_id}::bigint
-              AND e.module_key = 'omini_glitch'
-              AND e.status = 'active'
-              AND (e.starts_at IS NULL OR e.starts_at <= now())
-              AND (e.expires_at IS NULL OR e.expires_at > now())
-          )
-        )
-      )
-    ORDER BY m.module_key
-  `;
-  return rows.map((row: any) => row.module_key) as ModuleKey[];
+  // Availability is global, but paid Omini Glitch access is community-specific.
+  const [availableRows, entitlementRows] = await Promise.all([
+    sql`
+      SELECT module_key
+      FROM public.agent_modules
+      WHERE is_available = true AND module_key = ANY(${selected}::text[])
+    `,
+    sql`
+      SELECT telegram_chat_id::text AS telegram_chat_id, module_key, status, starts_at, expires_at
+      FROM public.rental_entitlements
+      WHERE telegram_chat_id = ${chatId}::bigint
+        AND module_key = 'omini_glitch'
+        AND status = 'active'
+    `,
+  ]);
+  return resolveActiveModules({
+    communityId: chatId,
+    selectedModules: selected,
+    availableModules: availableRows.map((row: any) => row.module_key),
+    entitlements: entitlementRows,
+  });
 }
 
 type CommunityProfile = {
