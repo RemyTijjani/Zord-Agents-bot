@@ -6,7 +6,7 @@ function matches(a: unknown, b: string): boolean {
 }
 function safeMessage(value: unknown, secret: string): string | null {
   if (typeof value !== "string") return null;
-  return value.replaceAll(secret, "[redacted]").replace(/[\r\n\t]+/g, " ").slice(0, 240);
+  return value.split(secret).join("[redacted]").replace(/[\r\n\t]+/g, " ").slice(0, 240);
 }
 async function postJson(url: string, headers: Record<string,string>, body: object) {
   const response = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json",...headers},body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});
