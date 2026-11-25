@@ -5,6 +5,7 @@ import { detectSentinelThreat } from "./sentinel.mjs";
 import { detectPolyShieldToxicity } from "./poly-shield.mjs";
 import { formatCommunityReport, resolveOminiGeneration } from "./omini-glitch.mjs";
 import { canRunTelegramModule } from "./telegram-operations.mjs";
+import { isTelegramCommunityAdmin, resolveAgentEnableDecision, updateSelectedModules } from "./agent-controls.mjs";
 
 type Sql = any;
 type TelegramMessage = {
@@ -280,6 +281,59 @@ async function runOminiGlitch(sql: Sql, token: string, message: TelegramMessage,
   await logAction(sql, chatId, userId, "omini_glitch", "community_report_requested", "info", "");
 }
 
+async function changeCommunityModule(sql: Sql, token: string, message: TelegramMessage, rawModule: string, enabled: boolean): Promise<string> {
+  const aliases: Record<string, ModuleKey> = { sentinel: "sentinel", poly_shield: "poly_shield", "poly-shield": "poly_shield", omini_glitch: "omini_glitch", "omini-glitch": "omini_glitch" };
+  const moduleKey = aliases[rawModule.toLowerCase()];
+  if (!moduleKey) return "Unknown agent. Use sentinel, poly_shield, or omini_glitch.";
+  const chatId = String(message.chat.id);
+  const userId = message.from?.id === undefined ? null : String(message.from.id);
+  if (!userId) return "Only a Telegram group administrator can change agent access.";
+  let requester: any;
+  try { requester = await telegramApi(token, "getChatMember", { chat_id: chatId, user_id: userId }); }
+  catch { return "I could not verify your Telegram administrator permissions. Please try again."; }
+  if (!isTelegramCommunityAdmin(requester)) return "Only Telegram group/channel administrators can change agent access.";
+  const community = await sql`
+    SELECT owner_telegram_user_id::text AS owner_id, bot_status, ownership_verified_at, chat_type, bot_permissions
+    FROM public.telegram_communities WHERE telegram_chat_id = ${chatId}::bigint LIMIT 1
+  `;
+  if (!community[0] || community[0].bot_status !== "active" || !community[0].owner_id || !community[0].ownership_verified_at) {
+    return "This community must have an active bot and a verified Telegram owner before agent access can be changed.";
+  }
+  if (enabled) {
+    const available = await sql`SELECT is_available FROM public.agent_modules WHERE module_key = ${moduleKey} LIMIT 1`;
+    let hasEntitlement = false;
+    if (moduleKey === "omini_glitch") {
+      const entitlement = await sql`
+        SELECT EXISTS (SELECT 1 FROM public.rental_entitlements
+          WHERE telegram_chat_id = ${chatId}::bigint
+            AND telegram_user_id = ${community[0].owner_id}::bigint
+            AND module_key = ${moduleKey} AND status = ${"active"}
+            AND (starts_at IS NULL OR starts_at <= now())
+            AND (expires_at IS NULL OR expires_at > now())) AS active
+      `;
+      hasEntitlement = entitlement[0]?.active === true;
+    }
+    const decision = resolveAgentEnableDecision({ moduleKey, globallyAvailable: available[0]?.is_available === true, chatType: community[0].chat_type, botPermissions: community[0].bot_permissions, hasEntitlement });
+    if (!decision.allowed) {
+      if (decision.reason === "globally_unavailable") return "This agent is temporarily unavailable. The ZORD platform administrator has not enabled it globally yet.";
+      if (decision.reason === "missing_bot_permission") return moduleKey === "sentinel" ? "Sentinel needs delete-message permission. Ask a Telegram administrator to grant it to the bot." : "This agent needs permission to send messages in this group or channel.";
+      if (decision.reason === "active_community_rental_required") return "Omini Glitch requires an active rental bound to this exact Telegram community and its verified owner.";
+      return "This agent cannot be enabled for this community.";
+    }
+  }
+  const current = await sql`SELECT enabled_modules FROM public.community_agent_settings WHERE telegram_chat_id = ${chatId}::bigint LIMIT 1`;
+  const nextModules = updateSelectedModules(current[0]?.enabled_modules, moduleKey, enabled);
+  await sql`
+    INSERT INTO public.community_agent_settings (telegram_chat_id, enabled_modules, updated_by_telegram_user_id, updated_at)
+    VALUES (${chatId}::bigint, ${nextModules}::text[], ${userId}::bigint, now())
+    ON CONFLICT (telegram_chat_id) DO UPDATE SET enabled_modules = EXCLUDED.enabled_modules, updated_by_telegram_user_id = EXCLUDED.updated_by_telegram_user_id, updated_at = now()
+  `;
+  await sql`
+    INSERT INTO public.audit_logs (actor_telegram_user_id, action, entity_type, entity_id, details)
+    VALUES (${userId}::bigint, ${enabled ? "community_agent_enabled" : "community_agent_disabled"}, "telegram_community", ${chatId}, ${JSON.stringify({ module_key: moduleKey })}::jsonb)
+  `;
+  return (enabled ? "Enabled " : "Disabled ") + moduleKey + " for this community.";
+}
 export async function processAgentMessage(sql: Sql, token: string, message: TelegramMessage): Promise<void> {
   if (!message?.chat?.id || message.from?.is_bot) return;
   const text = (message.text ?? message.caption ?? "").trim().slice(0, 4000);
@@ -297,7 +351,7 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
         ? modules.map((key) => key === "sentinel" ? "Sentinel" : key === "poly_shield" ? "Poly-Shield" : "Omini Glitch").join(", ")
         : "No agent modules are currently active for this community.";
       await send(token, chatId,
-        `🤖 ZORD Personal Bot\n\nAvailable commands:\n/help — show commands\n/agents — show active agents\n/status — check this community\n/faq — Sentinel community FAQ\n/rules — show community rules\n/about — show community information\n/communityprofile — view intelligence settings\n/ominireport — Omini Glitch weekly report\n/glitch <idea> — draft a community post\n/meme <topic> — create a text meme\n/ask <question> — Poly-Shield multilingual Q&A\n\nActive agents: ${active}`,
+        `🤖 ZORD Personal Bot\n\nAvailable commands:\n/help — show commands\n/agents — show active agents\n/agentsettings — view agent controls\n/enableagent <module> — enable an agent\n/disableagent <module> — disable an agent\n/status — check this community\n/faq — Sentinel community FAQ\n/rules — show community rules\n/about — show community information\n/communityprofile — view intelligence settings\n/ominireport — Omini Glitch weekly report\n/glitch <idea> — draft a community post\n/meme <topic> — create a text meme\n/ask <question> — Poly-Shield multilingual Q&A\n\nActive agents: ${active}`,
         message.message_id,
       );
       return;
@@ -319,6 +373,24 @@ export async function processAgentMessage(sql: Sql, token: string, message: Tele
       const field = ({ settopic: "topic", setaudience: "audience", setrules: "rules", settone: "tone", setcontent: "content" } as Record<string, string> )[parsed.name];
       const saved = await updateProfileFromOwner(sql, chatId, message.from?.id === undefined ? "" : String(message.from.id), field, parsed.args);
       await send(token, chatId, saved ? "✅ Community Intelligence profile updated. All enabled agents will use the new settings." : "Only the verified group owner can update this profile. Use the command with a value up to 1,200 characters.", message.message_id);
+      return;
+    }
+    if (["enableagent", "disableagent"].includes(parsed.name)) {
+      const requestedModule = parsed.args.split(/\s+/)[0]?.toLowerCase() ?? "";
+      if (!requestedModule) {
+        await send(token, chatId, "Usage: /enableagent <sentinel|poly_shield|omini_glitch> or /disableagent <sentinel|poly_shield|omini_glitch>", message.message_id);
+        return;
+      }
+      const result = await changeCommunityModule(sql, token, message, requestedModule, parsed.name === "enableagent");
+      await send(token, chatId, result, message.message_id);
+      return;
+    }
+    if (parsed.name === "agentsettings") {
+      const rows = await sql`SELECT COALESCE(enabled_modules, ARRAY[]::text[]) AS enabled_modules FROM public.community_agent_settings WHERE telegram_chat_id = ${chatId}::bigint LIMIT 1`;
+      const selected = rows[0]?.enabled_modules?.length ? rows[0].enabled_modules.join(", ") : "none";
+      const active = modules.length ? modules.join(", ") : "none (global availability, permissions or rental may block activation)";
+      const report = "⚙️ Community agent controls\nSelected: " + selected + "\nActive now: " + active + "\n\nSentinel: high-confidence scam matches are deleted; medium-risk findings are logged for review.\nPoly-Shield: flagged messages receive a warning for moderator review; it does not auto-delete.\nOmini Glitch: generates community content and weekly reports.\n\nOnly Telegram administrators can enable or disable agents. Omini Glitch requires an active rental for this exact community.";
+      await send(token, chatId, report, message.message_id);
       return;
     }
     if (parsed.name === "status") {
