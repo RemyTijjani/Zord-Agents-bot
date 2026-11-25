@@ -114,15 +114,28 @@ async function getActiveModules(sql: Sql, chatId: string): Promise<ModuleKey[]> 
     return selected;
   }
 
+  // Sentinel and Poly-Shield are free. Only Omini Glitch requires a paid rental.
   const rows = await sql`
-    SELECT DISTINCT e.module_key
-    FROM public.rental_entitlements e
-    INNER JOIN public.agent_modules m ON m.module_key = e.module_key AND m.is_available = true
-    WHERE e.telegram_user_id = ${configured[0].owner_telegram_user_id}::bigint
-      AND e.module_key = ANY(${selected}::text[])
-      AND e.status = 'active'
-      AND (e.starts_at IS NULL OR e.starts_at <= now())
-      AND (e.expires_at IS NULL OR e.expires_at > now())
+    SELECT m.module_key
+    FROM public.agent_modules m
+    WHERE m.is_available = true
+      AND m.module_key = ANY(${selected}::text[])
+      AND (
+        m.module_key IN ('sentinel', 'poly_shield')
+        OR (
+          m.module_key = 'omini_glitch'
+          AND EXISTS (
+            SELECT 1
+            FROM public.rental_entitlements e
+            WHERE e.telegram_user_id = ${configured[0].owner_telegram_user_id}::bigint
+              AND e.module_key = 'omini_glitch'
+              AND e.status = 'active'
+              AND (e.starts_at IS NULL OR e.starts_at <= now())
+              AND (e.expires_at IS NULL OR e.expires_at > now())
+          )
+        )
+      )
+    ORDER BY m.module_key
   `;
   return rows.map((row: any) => row.module_key) as ModuleKey[];
 }
