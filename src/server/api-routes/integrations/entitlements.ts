@@ -54,6 +54,9 @@ export default async function handler(req: any, res: any) {
     if (body.action === "sync") {
       const externalId = body.external_entitlement_id;
       const telegramUserId = body.telegram_user_id;
+      const telegramChatId = body.telegram_chat_id === undefined || body.telegram_chat_id === null
+        ? null
+        : body.telegram_chat_id;
       const moduleKey = body.module_key;
       const status = body.status;
       const startsAt = body.starts_at === undefined ? null : body.starts_at;
@@ -67,6 +70,26 @@ export default async function handler(req: any, res: any) {
       }
       if (moduleKey !== "omini_glitch") {
         return res.status(400).json({ error: "Only Omini Glitch supports paid rental entitlements." });
+      }
+      if (telegramChatId !== null && (typeof telegramChatId !== "string" || !/^-?\d{5,20}$/.test(telegramChatId))) {
+        return res.status(400).json({ error: "Invalid Telegram community ID." });
+      }
+      if (status === "active" && telegramChatId === null) {
+        return res.status(400).json({ error: "An active rental must be bound to a verified Telegram community." });
+      }
+      if (telegramChatId !== null) {
+        const verifiedCommunity = await sql`
+          SELECT telegram_chat_id
+          FROM public.telegram_communities
+          WHERE telegram_chat_id = ${telegramChatId}::bigint
+            AND owner_telegram_user_id = ${telegramUserId}::bigint
+            AND bot_status = 'active'
+            AND ownership_verified_at IS NOT NULL
+          LIMIT 1
+        `;
+        if (!verifiedCommunity[0]) {
+          return res.status(409).json({ error: "The Telegram community is not verified for this rental owner." });
+        }
       }
       if (!["pending", "active", "suspended", "revoked", "expired"].includes(String(status))) {
         return res.status(400).json({ error: "Invalid entitlement status." });
@@ -83,12 +106,13 @@ export default async function handler(req: any, res: any) {
         : "{}";
       const rows = await sql`
         INSERT INTO public.rental_entitlements (
-          external_entitlement_id, telegram_user_id, module_key, status,
+          external_entitlement_id, telegram_user_id, telegram_chat_id, module_key, status,
           starts_at, expires_at, last_verified_at, entitlement_data, updated_at
         )
         VALUES (
           ${externalId},
           ${telegramUserId}::bigint,
+          ${telegramChatId}::bigint,
           ${String(moduleKey)},
           ${String(status)}::text,
           ${startsAt}::timestamptz,
@@ -99,6 +123,7 @@ export default async function handler(req: any, res: any) {
         )
         ON CONFLICT (external_entitlement_id) DO UPDATE SET
           telegram_user_id = EXCLUDED.telegram_user_id,
+          telegram_chat_id = COALESCE(EXCLUDED.telegram_chat_id, rental_entitlements.telegram_chat_id),
           module_key = EXCLUDED.module_key,
           status = EXCLUDED.status,
           starts_at = EXCLUDED.starts_at,
@@ -106,9 +131,15 @@ export default async function handler(req: any, res: any) {
           last_verified_at = now(),
           entitlement_data = EXCLUDED.entitlement_data,
           updated_at = now()
+        WHERE rental_entitlements.telegram_chat_id IS NULL
+           OR EXCLUDED.telegram_chat_id IS NULL
+           OR rental_entitlements.telegram_chat_id = EXCLUDED.telegram_chat_id
         RETURNING id, external_entitlement_id, telegram_user_id::text AS telegram_user_id,
-                  module_key, status, starts_at, expires_at
+                  telegram_chat_id::text AS telegram_chat_id, module_key, status, starts_at, expires_at
       `;
+      if (!rows[0]) {
+        return res.status(409).json({ error: "This rental ID is already bound to a different Telegram community." });
+      }
       return res.status(200).json({ ok: true, entitlement: rows[0] });
     }
 
@@ -148,7 +179,8 @@ export default async function handler(req: any, res: any) {
               AND EXISTS (
                 SELECT 1
                 FROM public.rental_entitlements e
-                WHERE e.telegram_user_id = ${community.owner_telegram_user_id}::bigint
+                WHERE e.telegram_chat_id = ${community.telegram_chat_id}::bigint
+                  AND e.telegram_user_id = ${community.owner_telegram_user_id}::bigint
                   AND e.module_key = 'omini_glitch'
                   AND e.status = 'active'
                   AND (e.starts_at IS NULL OR e.starts_at <= now())
