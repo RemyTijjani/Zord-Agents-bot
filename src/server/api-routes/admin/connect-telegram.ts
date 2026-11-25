@@ -28,7 +28,7 @@ export default async function handler(req: any, res: any) {
       body: JSON.stringify({
         url: webhookUrl,
         secret_token: secret,
-        allowed_updates: ["my_chat_member", "message", "channel_post"],
+        allowed_updates: ["my_chat_member", "chat_member", "message", "edited_message", "channel_post", "edited_channel_post"],
         drop_pending_updates: false,
         max_connections: 10,
       }),
