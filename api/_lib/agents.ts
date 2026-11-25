@@ -80,7 +80,7 @@ async function consumeAiBudget(
 ): Promise<boolean> {
   const actorKey = userId || "anonymous";
   const rows = await sql`
-    INSERT INTO public.agent_ai_usage_windows
+    INSERT INTO public.agent_ai_usage_windows AS current_usage
       (telegram_chat_id, actor_key, module_key, window_started_at, request_count)
     VALUES (${chatId}::bigint, ${actorKey}, ${moduleKey}, date_trunc('minute', now()), 1)
     ON CONFLICT (telegram_chat_id, actor_key, module_key) DO UPDATE SET
@@ -236,6 +236,7 @@ async function runPolyShield(sql: Sql, token: string, message: TelegramMessage, 
   const flagged = finding.flagged;
   const severity = finding.severity;
   const reason = finding.reason;
+  if (!flagged) return;
 
   const chatId = String(message.chat.id);
   const userId = message.from?.id === undefined ? null : String(message.from.id);
