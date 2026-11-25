@@ -1,8 +1,18 @@
 const SEVERITY_ORDER = { low: 0, medium: 1, high: 2 };
+const AGENT_MODELS = {
+  sentinel: "gemini-2.5-flash-lite",
+  poly_shield: "gemini-2.5-flash",
+  omini_glitch: "gemini-2.5-pro",
+};
 
-export function getAiConfig(env = process.env) {
+export function getAiConfig(env = process.env, agent = "default") {
   const apiKey = typeof env.ZORD_AI_API_KEY === "string" ? env.ZORD_AI_API_KEY.trim() : "";
-  const model = typeof env.ZORD_AI_MODEL === "string" ? env.ZORD_AI_MODEL.trim() : "";
+  const agentKey = ["sentinel", "poly_shield", "omini_glitch"].includes(agent) ? agent.toUpperCase() : "";
+  const agentOverride = agentKey ? env[`ZORD_AI_MODEL_${agentKey}`] : "";
+  const configuredModel = typeof agentOverride === "string" && agentOverride.trim()
+    ? agentOverride.trim()
+    : (agent === "default" ? env.ZORD_AI_MODEL : AGENT_MODELS[agent] || env.ZORD_AI_MODEL);
+  const model = typeof configuredModel === "string" ? configuredModel.trim() : "";
   const endpoint = typeof env.ZORD_AI_API_URL === "string" && env.ZORD_AI_API_URL.trim()
     ? env.ZORD_AI_API_URL.trim()
     : "https://api.openai.com/v1/chat/completions";
@@ -29,8 +39,8 @@ function responseText(payload) {
   return null;
 }
 
-export async function completeChat(system, user, maxTokens = 350, env = process.env, fetchImpl = fetch) {
-  const config = getAiConfig(env);
+export async function completeChat(system, user, maxTokens = 350, env = process.env, fetchImpl = fetch, agent = "default") {
+  const config = getAiConfig(env, agent);
   if (!config || typeof fetchImpl !== "function") return null;
   const safeSystem = typeof system === "string" ? system.slice(0, 12000) : "";
   const safeUser = typeof user === "string" ? user.slice(0, 4000) : "";
