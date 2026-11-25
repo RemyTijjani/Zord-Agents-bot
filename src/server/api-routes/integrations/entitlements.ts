@@ -71,7 +71,7 @@ export default async function handler(req: any, res: any) {
       if (moduleKey !== "omini_glitch") {
         return res.status(400).json({ error: "Only Omini Glitch supports paid rental entitlements." });
       }
-      if (telegramChatId !== null && (typeof telegramChatId !== "string" || !/^-?\\d{5,20}$/.test(telegramChatId))) {
+      if (telegramChatId !== null && (typeof telegramChatId !== "string" || !/^-?\d{5,20}$/.test(telegramChatId))) {
         return res.status(400).json({ error: "Invalid Telegram community ID." });
       }
       if (status === "active" && telegramChatId === null) {
