@@ -31,5 +31,6 @@ jobs:
           git add package-lock.json
           if ! git diff --cached --quiet; then
             git commit -m "chore: refresh secure dependency lockfile"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
