@@ -47,27 +47,44 @@ export async function completeChat(system, user, maxTokens = 350, env = process.
   if (!safeSystem || !safeUser) return null;
 
   try {
-    const response = await fetchImpl(config.endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.model,
-        temperature: 0.2,
-        max_tokens: Math.max(32, Math.min(800, Math.trunc(maxTokens) || 350)),
-        messages: [
-          { role: "system", content: safeSystem },
-          { role: "user", content: safeUser },
-        ],
-      }),
-      signal: AbortSignal.timeout(12000),
+    const requestBody = JSON.stringify({
+      model: config.model,
+      temperature: 0.2,
+      max_tokens: Math.max(32, Math.min(800, Math.trunc(maxTokens) || 350)),
+      messages: [
+        { role: "system", content: safeSystem },
+        { role: "user", content: safeUser },
+      ],
     });
-    if (!response.ok) return null;
-    const payload = await response.json();
-    const content = responseText(payload);
-    return typeof content === "string" && content.trim() ? content.trim().slice(0, 3500) : null;
+
+    // Retry one transient 503. Retry 429 only when Gemini explicitly
+    // requests a short wait; never hammer a longer quota window.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetchImpl(config.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: requestBody,
+        signal: AbortSignal.timeout(12000),
+      });
+      if (response.ok) {
+        const payload = await response.json();
+        const content = responseText(payload);
+        return typeof content === "string" && content.trim() ? content.trim().slice(0, 3500) : null;
+      }
+      if (attempt > 0 || (response.status !== 503 && response.status !== 429)) return null;
+      let retryDelay = 500;
+      if (response.status === 429) {
+        const retryAfter = response.headers?.get?.("retry-after");
+        const seconds = retryAfter && /^\d+(?:\.\d+)?$/.test(retryAfter) ? Number(retryAfter) : NaN;
+        if (!Number.isFinite(seconds) || seconds < 0 || seconds > 1.5) return null;
+        retryDelay = Math.max(250, Math.ceil(seconds * 1000));
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+    }
+    return null;
   } catch {
     return null;
   }
