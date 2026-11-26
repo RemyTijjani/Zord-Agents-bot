@@ -1,8 +1,8 @@
 const SEVERITY_ORDER = { low: 0, medium: 1, high: 2 };
 const AGENT_MODELS = {
   sentinel: "gemini-3.5-flash-lite",
-  poly_shield: "gemini-3.8-flash",
-  omini_glitch: "gemini-3.1-pro-preview",
+  poly_shield: "gemini-3.5-flash-lite",
+  omini_glitch: "gemini-3.5-flash-lite",
 };
 
 export function getAiConfig(env = process.env, agent = "default") {
