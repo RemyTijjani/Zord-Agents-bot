@@ -8,9 +8,13 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Method not allowed." });
   }
   const agents = ["sentinel", "poly_shield", "omini_glitch"] as const;
-  const results = await Promise.all(agents.map(async (agent) => {
+  const results = [];
+  for (const agent of agents) {
     const config = getAiConfig(process.env, agent);
-    if (!config) return { agent, connected: false, reason: "configuration_missing_or_invalid" };
+    if (!config) {
+      results.push({ agent, connected: false, reason: "configuration_missing_or_invalid" });
+      continue;
+    }
     try {
       const response = await fetch(config.endpoint, {
         method: "POST",
@@ -34,18 +38,19 @@ export default async function handler(req: any, res: any) {
       const providerMessage = typeof parsed?.error?.message === "string"
         ? parsed.error.message.replace(/https?:\/\/\S+/g, "[link]").slice(0, 240)
         : undefined;
-      return {
+      results.push({
         agent,
         model: config.model,
         httpStatus: response.status,
         connected,
         ...(providerMessage ? { providerMessage } : {}),
-      };
+      });
     } catch {
-      return { agent, model: config.model, connected: false, reason: "network_or_timeout" };
+      results.push({ agent, model: config.model, connected: false, reason: "network_or_timeout" });
     }
-  }));
-  const allConnected = results.every((item) => item.connected);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  const allConnected = results.every((item: any) => item.connected);
   return res.status(allConnected ? 200 : 502).json({
     testedAt: new Date().toISOString(),
     provider: "Gemini",
