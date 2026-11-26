@@ -66,3 +66,48 @@ test("AI can add multilingual findings and only raise local severity", () => {
     { flagged: true, severity: "high", reason: "model_reason" },
   ), { flagged: true, severity: "high", reason: "keyword_fallback" });
 });
+
+
+test("AI runtime retries a transient Gemini 503 once", async () => {
+  let calls = 0;
+  const result = await completeChat("system", "user", 100, {
+    ZORD_AI_API_KEY: "secret",
+    ZORD_AI_MODEL: "gemini-3.5-flash-lite",
+    ZORD_AI_API_URL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+  }, async () => {
+    calls += 1;
+    if (calls === 1) return { ok: false, status: 503, headers: { get: () => null } };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: "OK" } }] }) };
+  });
+  assert.equal(result, "OK");
+  assert.equal(calls, 2);
+});
+
+test("AI runtime retries a 429 only when a short Retry-After is supplied", async () => {
+  let calls = 0;
+  const result = await completeChat("system", "user", 100, {
+    ZORD_AI_API_KEY: "secret",
+    ZORD_AI_MODEL: "gemini-3.5-flash-lite",
+    ZORD_AI_API_URL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+  }, async () => {
+    calls += 1;
+    if (calls === 1) return { ok: false, status: 429, headers: { get: (name) => name === "retry-after" ? "0" : null } };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: "OK" } }] }) };
+  });
+  assert.equal(result, "OK");
+  assert.equal(calls, 2);
+});
+
+test("AI runtime does not retry a long Gemini quota window", async () => {
+  let calls = 0;
+  const result = await completeChat("system", "user", 100, {
+    ZORD_AI_API_KEY: "secret",
+    ZORD_AI_MODEL: "gemini-3.5-flash-lite",
+    ZORD_AI_API_URL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+  }, async () => {
+    calls += 1;
+    return { ok: false, status: 429, headers: { get: () => "30" } };
+  });
+  assert.equal(result, null);
+  assert.equal(calls, 1);
+});
